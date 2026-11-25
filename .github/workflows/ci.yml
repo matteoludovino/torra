@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # API tests run against a real PostgreSQL: money and state rules rely on its constraints and locks.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: torra
+          POSTGRES_PASSWORD: torra
+          POSTGRES_DB: torra
+        ports: ["5440:5432"]
+        options: >-
+          --health-cmd "pg_isready -U torra -d torra"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://torra:torra@localhost:5440/torra
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      # Every schema change ships with its migration.
+      - run: npx prisma migrate deploy && npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+        working-directory: apps/api
+      - run: npm test
+      - run: npm run build
+
+  api-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -f apps/api/Dockerfile -t torra-api .
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: torra
+          POSTGRES_PASSWORD: torra
+          POSTGRES_DB: torra
+        ports: ["5440:5432"]
+        options: >-
+          --health-cmd "pg_isready -U torra -d torra"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      # Real email: the tests read the links the API sends.
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ["8026:8025", "1026:1025"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      # Sign up and confirm by email, profiles seen by a visitor, password reset ending other sessions.
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

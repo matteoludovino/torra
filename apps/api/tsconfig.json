@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // NestJS resolves constructor dependencies from the types TypeScript records on decorated classes.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    // The generated Prisma client imports its own files with .ts extensions; esbuild bundles them.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "test", "scripts", "*.ts", "*.mjs"]
+}

@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Builds
+.next/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Generated Prisma client
+apps/api/src/generated/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Tests
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# Tooling
+.vercel
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# Written by `next dev` for AI coding agents; not part of the project
+AGENTS.md

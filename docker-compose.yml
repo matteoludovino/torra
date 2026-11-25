@@ -1,0 +1,27 @@
+# Local services for development and tests. The API and the web app run with `npm run dev`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: torra
+      POSTGRES_PASSWORD: torra
+      POSTGRES_DB: torra
+    ports:
+      - "5440:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U torra -d torra"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Catches every email the API sends locally: http://localhost:8026
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8026:8025"
+      - "1026:1025"
+
+volumes:
+  postgres_data:
