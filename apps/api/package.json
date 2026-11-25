@@ -13,6 +13,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:prepare": "node --import tsx scripts/prepare-db.ts",
+    "db:seed": "node --import tsx scripts/seed.ts",
     "admin:create": "node --import tsx scripts/create-admin.ts",
     "postinstall": "prisma generate"
   },

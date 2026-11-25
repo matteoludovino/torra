@@ -1,5 +1,6 @@
 import { type DynamicModule, Module } from "@nestjs/common";
 import { AccountsModule } from "./auth/accounts.module.ts";
+import { CatalogModule } from "./catalog/catalog.module.ts";
 import { ENV, type Env } from "./env.ts";
 import { HealthController } from "./health/health.controller.ts";
 import { CoreModule } from "./outbox/outbox.module.ts";
@@ -13,7 +14,7 @@ export class AppModule {
     return {
       module: AppModule,
       global: true,
-      imports: [PrismaModule, CoreModule.with(clock), AccountsModule],
+      imports: [PrismaModule, CoreModule.with(clock), AccountsModule, CatalogModule],
       controllers: [HealthController],
       providers: [{ provide: ENV, useValue: env }],
       exports: [ENV],
