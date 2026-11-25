@@ -24,7 +24,7 @@ export default defineConfig({
     {
       // Playwright starts the servers before any global setup: the database is prepared (migrated, with
       // the seeded marketplace) right before the API starts.
-      command: `npm run db:prepare -w @torra/api -- ${E2E_DATABASE_URL} && npm run start -w @torra/api`,
+      command: `npm run db:prepare -w @torra/api -- ${E2E_DATABASE_URL} && npm run db:seed -w @torra/api && npm run start -w @torra/api`,
       url: "http://localhost:8050/api/health",
       env: {
         DATABASE_URL: E2E_DATABASE_URL,

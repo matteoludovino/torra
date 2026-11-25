@@ -39,7 +39,7 @@ export function SiteHeader() {
           aria-label="Principal"
           className="order-last flex basis-full items-center gap-4 pt-1 pb-1 sm:order-none sm:basis-auto sm:p-0"
         >
-          <Link href="/" className="text-sm text-stone-700 hover:text-stone-900">
+          <Link href="/loja" className="text-sm text-stone-700 hover:text-stone-900">
             Loja
           </Link>
           {me?.role === "admin" ? (

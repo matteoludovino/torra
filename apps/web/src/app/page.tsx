@@ -1,43 +1,66 @@
+import { CATEGORIES, type ProductSummary } from "@torra/shared";
+import Link from "next/link";
+import { Suspense } from "react";
+import { ProductGrid } from "@/components/catalog/product-grid";
 import { ServerStatus } from "@/components/server-status";
 import { ButtonLink } from "@/components/ui/button";
-
-const SHELVES = [
-  { title: "Cafés especiais", text: "Torrados na semana, em grãos ou moídos para o seu método." },
-  { title: "Utensílios", text: "Moedores, coadores e chaleiras para acertar a extração." },
-  { title: "Cursos e e-books", text: "Do primeiro coado ao espresso, com acesso na hora da compra." },
-];
+import { Unavailable } from "@/components/unavailable";
+import { serverGet } from "@/lib/server-api";
 
 export default function Home() {
   return (
-    <main className="mx-auto grid max-w-4xl gap-10 px-4 py-12 sm:py-16">
+    <main className="mx-auto grid max-w-6xl gap-12 px-4 py-10 sm:py-14">
       <div className="grid gap-5">
         <p className="text-sm font-semibold tracking-wide text-brand-700 uppercase">Torrefação Torra</p>
-        <h1 className="text-4xl font-semibold tracking-tight text-stone-900 sm:text-5xl">
+        <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-stone-900 sm:text-5xl">
           Café especial, do grão à xícara.
         </h1>
         <p className="max-w-2xl text-lg text-stone-700">
           Cafés torrados na semana, os utensílios para prepará-los e cursos para fazer um café melhor em casa.
         </p>
-        <div className="flex flex-wrap gap-3">
-          <ButtonLink href="/cadastro">Criar conta</ButtonLink>
-          <ButtonLink href="/entrar" variant="secondary">
-            Entrar
+        <div className="flex flex-wrap items-center gap-3">
+          <ButtonLink href="/loja">Ver a loja</ButtonLink>
+          <ButtonLink href="/loja?categoria=cafes" variant="secondary">
+            Cafés da semana
           </ButtonLink>
         </div>
         <ServerStatus />
       </div>
-      <ul className="grid gap-4 sm:grid-cols-3">
-        {SHELVES.map((shelf) => (
-          <li
-            key={shelf.title}
-            className="grid content-start gap-1.5 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"
-          >
-            <h2 className="font-semibold text-brand-900">{shelf.title}</h2>
-            <p className="text-sm text-stone-600">{shelf.text}</p>
-          </li>
-        ))}
-      </ul>
-      <p className="text-sm text-stone-500">A loja abre em breve: o catálogo chega na próxima versão.</p>
+      <Suspense fallback={<div aria-busy className="h-96 animate-pulse rounded-2xl bg-stone-200/70" />}>
+        <Shelves />
+      </Suspense>
     </main>
+  );
+}
+
+async function Shelves() {
+  const result = await serverGet<ProductSummary[]>("/catalog");
+  if (result.status !== "ok") return <Unavailable />;
+  return (
+    <>
+      {CATEGORIES.map((category) => {
+        const products = result.data.filter((p) => p.category === category.slug).slice(0, 4);
+        if (products.length === 0) return null;
+        return (
+          <section key={category.slug} aria-labelledby={`shelf-${category.slug}`} className="grid gap-4">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div className="grid gap-0.5">
+                <h2 id={`shelf-${category.slug}`} className="text-xl font-semibold text-stone-900">
+                  {category.label}
+                </h2>
+                <p className="text-sm text-stone-600">{category.description}</p>
+              </div>
+              <Link
+                href={`/loja?categoria=${category.slug}`}
+                className="text-sm font-medium text-brand-700 hover:underline"
+              >
+                Ver todos →
+              </Link>
+            </div>
+            <ProductGrid products={products} />
+          </section>
+        );
+      })}
+    </>
   );
 }
