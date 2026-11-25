@@ -1,0 +1,144 @@
+// Models arrive stage by stage; hand-written SQL (triggers, constraints, full-text) lives in the migrations.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A customer's private corner of the store. Every account gets one (a one-click demo's lasts a day; a
+/// signed-up customer's has no end): they see the shared catalog plus what they themselves wrote (cart,
+/// orders, stock reservations), never anyone else's. Deleting a sandbox removes all of that.
+model Sandbox {
+  id           String        @id @db.Uuid
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  /// Null: kept (a signed-up customer). Set: removed after this moment (a demo).
+  expiresAt    DateTime?     @db.Timestamptz(3)
+  outboxEvents OutboxEvent[]
+  users        User[]
+  sentEmails   SentEmail[]
+
+  @@index([expiresAt])
+  @@map("sandboxes")
+}
+
+/// Domain events written in the same transaction as the change they describe, then handled by the
+/// in-process scheduler (emails, delayed rules). A row is handled once: claimed with SKIP LOCKED, retried
+/// with backoff on failure, given up after too many attempts.
+model OutboxEvent {
+  id          BigInt    @id @default(autoincrement())
+  type        String    @db.VarChar(60)
+  payload     Json
+  sandboxId   String?   @db.Uuid
+  sandbox     Sandbox?  @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  dueAt       DateTime  @default(now()) @db.Timestamptz(3)
+  lockedUntil DateTime? @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  lastError   String?
+  processedAt DateTime? @db.Timestamptz(3)
+  failedAt    DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([processedAt, failedAt, dueAt])
+  @@map("outbox_events")
+}
+
+enum Role {
+  customer
+  admin
+}
+
+/// An account. Customers always live in a sandbox; the store's own admins (who run the shared catalog)
+/// have none.
+model User {
+  id              String       @id @db.Uuid
+  /// Trimmed and lower-cased. Never sent to anyone but its owner (and the store's admins).
+  email           String       @unique @db.VarChar(254)
+  name            String       @db.VarChar(60)
+  /// Argon2id. Null: can't sign in with a password (demo personas).
+  passwordHash    String?
+  role            Role         @default(customer)
+  emailVerifiedAt DateTime?    @db.Timestamptz(3)
+  sandboxId       String?      @db.Uuid
+  sandbox         Sandbox?     @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  /// Email categories this person turned off (account and order receipts can't be).
+  emailOptOuts    String[]     @default([])
+  /// Set by an admin: can't sign in.
+  suspendedAt     DateTime?    @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  sessions        Session[]
+  emailTokens     EmailToken[]
+
+  @@index([sandboxId])
+  @@map("users")
+}
+
+/// A signed-in browser. The cookie holds a random token; only its SHA-256 is stored.
+model Session {
+  id        String   @id @db.Uuid
+  tokenHash Bytes    @unique
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+enum EmailTokenPurpose {
+  verify_email
+  reset_password
+}
+
+/// A link sent by email (verify the address, reset the password). Stored as SHA-256, used once.
+model EmailToken {
+  id        String            @id @db.Uuid
+  tokenHash Bytes             @unique
+  userId    String            @db.Uuid
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   EmailTokenPurpose
+  expiresAt DateTime          @db.Timestamptz(3)
+  usedAt    DateTime?         @db.Timestamptz(3)
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, purpose])
+  @@map("email_tokens")
+}
+
+/// Emails kept instead of (or as well as) sent: every email when no SMTP server is configured, and
+/// always for demo accounts, whose visitors read them in the app's demo inbox.
+model SentEmail {
+  id        String   @id @db.Uuid
+  sandboxId String?  @db.Uuid
+  sandbox   Sandbox? @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  userId    String?  @db.Uuid
+  to        String   @db.VarChar(254)
+  kind      String   @db.VarChar(60)
+  subject   String
+  text      String
+  html      String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([sandboxId, createdAt])
+  @@index([userId, createdAt])
+  @@map("sent_emails")
+}
+
+/// What admins did, append-only (the database refuses changes; see the migration).
+model AuditEntry {
+  id         String   @id @db.Uuid
+  actorId    String   @db.Uuid
+  action     String   @db.VarChar(60)
+  targetType String   @db.VarChar(30)
+  targetId   String?  @db.Uuid
+  details    Json     @default("{}")
+  sandboxId  String?  @db.Uuid
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([sandboxId, createdAt(sort: Desc)])
+  @@map("audit_entries")
+}
