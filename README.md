@@ -16,6 +16,13 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
   wrote: cart, orders and stock reservations (from the next stages on). One customer's checkout can never
   hold stock that another sees, and a one-click demo visitor (stage 9) is a customer whose sandbox goes
   after a day.
+- **A storefront.** Coffees in every weight and grind, brewing gear and digital courses, on shelves by
+  category, with search that ignores accents ("ceramica" finds "cerâmica") and product pages where each
+  variant shows its price and what's left ("Últimas 3 unidades", "Esgotado nesta opção").
+- **Stock that explains itself.** Every change is an append-only movement; the level per variant is kept
+  by a trigger, can't be written directly and can't go below zero. Each customer's first touch of a
+  shared variant copies its stock into their sandbox; from then on only their copy moves, so nobody's
+  cart can hold anyone else's units, and the shared catalog's stock never moves because of a customer.
 - **Email people can control.** Receipts and account email always go; order progress updates carry a
   signed unsubscribe link and the one-click header email clients turn into a button.
 
@@ -37,9 +44,8 @@ An npm-workspaces monorepo, built on the infrastructure of [Lance](https://githu
 - **An append-only audit log** of what admins do: the database refuses to change or delete it.
 
 The plan ahead, by design: a payment gateway port (Stripe and a deterministic fake), one reconciliation
-function that always asks Stripe for the current state (webhooks only trigger it), stock levels copied
-per sandbox on first use, fulfillment kept apart from money, and order totals, refund caps and stock
-invariants enforced by the database.
+function that always asks Stripe for the current state (webhooks only trigger it), fulfillment kept apart
+from money, and order totals and refund caps enforced by the database, like stock already is.
 
 ## Running locally
 
@@ -50,6 +56,7 @@ npm install
 npm run db:up                      # PostgreSQL on :5440, Mailpit (email catcher) on :8026
 cp .env.example apps/api/.env
 npm run db:migrate -w @torra/api
+npm run db:seed -w @torra/api      # the catalog: 12 products, 53 variants and their stock
 npm run dev                        # API on :8050, web on http://localhost:3040
 ```
 
@@ -64,7 +71,7 @@ npm run dev                        # API on :8050, web on http://localhost:3040
 ## Roadmap
 
 1. ✅ Base: monorepo, accounts with a sandbox per customer, outbox, scheduler, audit log, CI
-2. Catalog and stock (variants, stock levels per sandbox, storefront, search)
+2. ✅ Catalog and stock (variants, stock levels per sandbox, storefront, search)
 3. Cart (anonymous and signed-in, server prices)
 4. Shipping by CEP, coupons and totals
 5. Orders with stock reservation
