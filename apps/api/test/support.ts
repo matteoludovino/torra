@@ -24,13 +24,13 @@ export function testApp(overrides: Record<string, string> = {}, { clock }: { clo
 
 /** Empties every table that tests write (the schema stays). */
 export async function resetDb(db: PrismaService): Promise<void> {
-  // Append-only tables (the audit log) are cleared the one way the database allows (a purge, for this
+  // Append-only tables (the audit log, stock movements) are cleared the one way the database allows (a purge, for this
   // transaction only).
   await db.$transaction([
     db.$executeRawUnsafe(`SELECT set_config('torra.purge', 'on', true)`),
     db.$executeRawUnsafe(
-      `TRUNCATE users, sandboxes, sessions, email_tokens, sent_emails, outbox_events, audit_entries
-        RESTART IDENTITY CASCADE`,
+      `TRUNCATE users, sandboxes, sessions, email_tokens, sent_emails, outbox_events, audit_entries,
+        products, variants, stock_levels, stock_movements RESTART IDENTITY CASCADE`,
     ),
   ]);
 }
