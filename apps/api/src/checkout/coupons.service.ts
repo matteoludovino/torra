@@ -8,6 +8,8 @@ import { visibleTo } from "../sandbox/scope.ts";
 export interface CouponUser {
   userId: string | null;
   sandboxId: string | null;
+  /** Uses held by this cart's order waiting for payment don't count (placing again releases them). */
+  cartId?: string | null;
 }
 
 export type CouponCheck =
@@ -38,15 +40,18 @@ export class Coupons {
     if (subtotalCents < coupon.minSubtotalCents) {
       return { ok: false, problem: `Válido em compras a partir de ${formatBRL(coupon.minSubtotalCents)}.` };
     }
+    const notMine = user.cartId
+      ? { NOT: { order: { cartId: user.cartId, status: "pending_payment" as const } } }
+      : {};
     if (coupon.maxRedemptions !== null && user.sandboxId) {
       const used = await tx.couponRedemption.count({
-        where: { couponId: coupon.id, sandboxId: user.sandboxId, releasedAt: null },
+        where: { couponId: coupon.id, sandboxId: user.sandboxId, releasedAt: null, ...notMine },
       });
       if (used >= coupon.maxRedemptions) return { ok: false, problem: "Este cupom esgotou." };
     }
     if (coupon.oncePerCustomer && user.userId) {
       const mine = await tx.couponRedemption.count({
-        where: { couponId: coupon.id, userId: user.userId, releasedAt: null },
+        where: { couponId: coupon.id, userId: user.userId, releasedAt: null, ...notMine },
       });
       if (mine > 0) return { ok: false, problem: "Você já usou este cupom." };
     }

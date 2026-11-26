@@ -42,7 +42,16 @@ export class Quotes {
     if (cart.lines.length === 0) {
       throw new ConflictException({ code: "empty_cart", message: "Seu carrinho está vazio." });
     }
-    const user = { userId: viewer?.sandboxId ? viewer.id : null, sandboxId: viewer?.sandboxId ?? null };
+    // A customer's own waiting order (back from its page to change something) holds a coupon use that
+    // placing again would give back first: the quote doesn't count it.
+    const own = viewer?.sandboxId
+      ? await this.db.cart.findUnique({ where: { userId: viewer.id }, select: { id: true } })
+      : null;
+    const user = {
+      userId: viewer?.sandboxId ? viewer.id : null,
+      sandboxId: viewer?.sandboxId ?? null,
+      cartId: own?.id ?? null,
+    };
 
     let coupon: Quote["coupon"] = null;
     let couponProblem: string | null = null;

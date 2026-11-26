@@ -23,6 +23,7 @@ export type CartIssue = "unavailable" | "insufficient" | "price_changed";
 
 export interface CartLine {
   variantId: string;
+  sku: string;
   product: { slug: string; title: string; art: string; kind: ProductKind };
   /** "Peso: 250 g · Moagem: Em grãos"; empty for a product with a single variant. */
   options: { name: string; value: string }[];

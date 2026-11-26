@@ -93,7 +93,7 @@ export class Carts implements OnModuleInit {
         where: { cartId_variantId: { cartId: cart.id, variantId } },
       });
       const wanted = variant.product.kind === "digital" ? 1 : (existing?.quantity ?? 0) + quantity;
-      await this.checkQuantity(tx, owner, variant, wanted);
+      await this.checkQuantity(tx, owner, cart.id, variant, wanted);
       await tx.cartItem.upsert({
         where: { cartId_variantId: { cartId: cart.id, variantId } },
         create: {
@@ -138,7 +138,7 @@ export class Carts implements OnModuleInit {
             message: "Produtos digitais: uma unidade basta.",
           });
         }
-        await this.checkQuantity(tx, owner, item.variant, quantity);
+        await this.checkQuantity(tx, owner, cart.id, item.variant, quantity);
         await tx.cartItem.update({
           where: { cartId_variantId: { cartId: cart.id, variantId } },
           data: { quantity },
@@ -271,6 +271,7 @@ export class Carts implements OnModuleInit {
   private async checkQuantity(
     tx: Tx,
     owner: Owner,
+    cartId: string,
     variant: { id: string; product: { kind: string } },
     quantity: number,
   ): Promise<void> {
@@ -281,7 +282,8 @@ export class Carts implements OnModuleInit {
       });
     }
     if (variant.product.kind !== "physical") return;
-    const available = (await this.stock.available(tx, [variant.id], sandboxOf(owner))).get(variant.id) ?? 0;
+    const left = (await this.stock.available(tx, [variant.id], sandboxOf(owner))).get(variant.id) ?? 0;
+    const available = left + ((await this.held(tx, cartId)).get(variant.id) ?? 0);
     if (quantity > available) {
       throw new ConflictException({
         code: "insufficient_stock",
@@ -296,9 +298,14 @@ export class Carts implements OnModuleInit {
   }
 
   /** The cart as the customer sees it: current prices, what's left, and what needs their attention. */
-  private async render(cartId: string | null, sandboxId: string | null): Promise<CartView> {
+  private render(cartId: string | null, sandboxId: string | null): Promise<CartView> {
+    return this.lines(this.db, cartId, sandboxId);
+  }
+
+  /** The same, read in the caller's transaction (placing an order reads it under the cart's lock). */
+  async lines(db: Tx, cartId: string | null, sandboxId: string | null): Promise<CartView> {
     const items: Item[] = cartId
-      ? await this.db.cartItem.findMany({
+      ? await db.cartItem.findMany({
           where: { cartId },
           include: itemInclude,
           orderBy: { createdAt: "asc" },
@@ -307,12 +314,17 @@ export class Carts implements OnModuleInit {
     const physical = items
       .filter((item) => item.variant.product.kind === "physical")
       .map((item) => item.variantId);
-    const available = await this.stock.available(this.db, physical, sandboxId);
+    const available = await this.stock.available(db, physical, sandboxId);
+    const held = cartId ? await this.held(db, cartId) : new Map<string, number>();
     const lines = items.map((item): CartLine => {
       const { variant } = item;
-      const left = variant.product.kind === "physical" ? (available.get(variant.id) ?? 0) : null;
+      const left =
+        variant.product.kind === "physical"
+          ? (available.get(variant.id) ?? 0) + (held.get(variant.id) ?? 0)
+          : null;
       return {
         variantId: variant.id,
+        sku: variant.sku,
         product: {
           slug: variant.product.slug,
           title: variant.product.title,
@@ -336,6 +348,19 @@ export class Carts implements OnModuleInit {
       subtotalCents: lines.reduce((sum, line) => sum + line.lineTotalCents, 0),
       ready: lines.length > 0 && lines.every((line) => line.issue === null),
     };
+  }
+
+  /**
+   * Units the cart's own order (waiting for payment) holds, by variant: they're still the customer's to
+   * buy, so the cart counts them as available (going back from checkout doesn't show them sold out).
+   */
+  private async held(db: Tx, cartId: string): Promise<Map<string, number>> {
+    const rows = await db.$queryRaw<{ variantId: string; quantity: number }[]>`
+      SELECT m."variantId", (-SUM(m.quantity))::int AS quantity
+      FROM stock_movements m JOIN orders o ON o.id = m."orderId"
+      WHERE o."cartId" = ${cartId}::uuid AND o.status = 'pending_payment'
+      GROUP BY m."variantId"`;
+    return new Map(rows.map((row) => [row.variantId, row.quantity]));
   }
 }
 
