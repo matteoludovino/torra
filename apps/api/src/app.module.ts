@@ -4,6 +4,7 @@ import { CatalogModule } from "./catalog/catalog.module.ts";
 import { CheckoutModule } from "./checkout/checkout.module.ts";
 import { ENV, type Env } from "./env.ts";
 import { HealthController } from "./health/health.controller.ts";
+import { OrdersModule } from "./orders/orders.module.ts";
 import { CoreModule } from "./outbox/outbox.module.ts";
 import { PrismaModule } from "./prisma/prisma.module.ts";
 import type { Clock } from "./time/clock.ts";
@@ -15,7 +16,14 @@ export class AppModule {
     return {
       module: AppModule,
       global: true,
-      imports: [PrismaModule, CoreModule.with(clock), AccountsModule, CatalogModule, CheckoutModule],
+      imports: [
+        PrismaModule,
+        CoreModule.with(clock),
+        AccountsModule,
+        CatalogModule,
+        CheckoutModule,
+        OrdersModule,
+      ],
       controllers: [HealthController],
       providers: [{ provide: ENV, useValue: env }],
       exports: [ENV],

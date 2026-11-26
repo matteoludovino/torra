@@ -10,6 +10,7 @@ export * from "./emails";
 export * from "./errors";
 export * from "./health";
 export * from "./money";
+export * from "./orders";
 export * from "./profiles";
 export * from "./shipping";
 export * from "./totals";
