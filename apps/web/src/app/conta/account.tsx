@@ -11,6 +11,7 @@ import { Notice } from "@/components/ui/notice";
 import { api, ApiFailure } from "@/lib/api";
 import { serverFieldErrors, validate, type FieldErrors } from "@/lib/forms";
 import { useSetMe } from "@/lib/session";
+import { Orders } from "./orders";
 
 /** The signed-in customer's account: their name, their address's confirmation, their email choices. */
 export function Account() {
@@ -34,12 +35,7 @@ export function Account() {
             </Notice>
           )}
           <NameForm me={me} />
-          <section className="grid gap-2 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
-            <h2 className="font-semibold">Pedidos</h2>
-            <p className="text-sm text-stone-600">
-              Seus pedidos e cursos aparecem aqui depois da primeira compra.
-            </p>
-          </section>
+          <Orders />
           <Link href="/conta/emails" className="text-sm font-medium text-brand-700 hover:underline">
             Preferências de e-mail
           </Link>

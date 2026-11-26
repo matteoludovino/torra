@@ -8,6 +8,7 @@ import { Button, ButtonLink } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { ApiFailure } from "@/lib/api";
 import { useCart, useCartChange } from "@/lib/cart";
+import { useChoices, useQuote } from "@/lib/checkout";
 import { useMe } from "@/lib/session";
 
 /** The cart: lines at today's prices, what needs attention, and the subtotal. */
@@ -16,6 +17,8 @@ export function CartScreen() {
   const { data: me } = useMe();
   const change = useCartChange();
   const failure = change.error instanceof ApiFailure ? change.error.message : null;
+  const [choices, setChoices] = useChoices();
+  const { data: quote } = useQuote(cart, choices);
 
   return (
     <main className="mx-auto grid max-w-4xl gap-6 px-4 py-10">
@@ -56,13 +59,17 @@ export function CartScreen() {
             </ul>
           </section>
           <aside className="grid gap-3 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm md:sticky md:top-6">
-            <QuotePanel cart={cart} />
-            <Button disabled>Continuar para o pagamento</Button>
+            <QuotePanel cart={cart} choices={choices} onChange={setChoices} />
+            {cart.ready && !quote?.belowMinimum ? (
+              <ButtonLink href={me ? "/checkout" : "/entrar?next=/checkout"}>Continuar</ButtonLink>
+            ) : (
+              <Button disabled>Continuar</Button>
+            )}
             <p className="text-xs text-stone-500">
               {cart.ready
-                ? "O checkout chega numa próxima versão da loja."
+                ? "Na próxima tela: endereço de entrega e revisão do pedido."
                 : "Resolva os avisos dos itens para continuar."}
-              {!me ? " Para pagar, você vai entrar na sua conta; o carrinho vai junto." : ""}
+              {!me ? " Para comprar, você entra na sua conta; o carrinho vai junto." : ""}
             </p>
           </aside>
         </div>

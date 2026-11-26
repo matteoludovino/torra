@@ -5,19 +5,35 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 
+/** The delivery address as typed at checkout (the CEP lives in `Choices.cep`, which prices shipping). */
+export interface AddressDraft {
+  recipient: string;
+  street: string;
+  number: string;
+  complement: string;
+  district: string;
+  city: string;
+  uf: string;
+}
+
 /** What the customer chose for shipping and discount, kept for this tab (checkout picks it up). */
 export interface Choices {
   cep?: string;
   uf?: QuoteInput["uf"];
   shippingService?: QuoteInput["shippingService"];
   couponCode?: string;
+  address?: AddressDraft;
 }
 
 const KEY = "torra:checkout";
 
-/** The choices, remembered in sessionStorage when it works (a private window may refuse: then in memory). */
-export function useChoices(): [Choices, (next: Choices) => void] {
+/**
+ * The choices, remembered in sessionStorage when it works (a private window may refuse: then in memory).
+ * The third value says whether the saved ones have been read (forms wait for it to start from them).
+ */
+export function useChoices(): [Choices, (next: Choices) => void, boolean] {
   const [choices, setChoices] = useState<Choices>({});
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(KEY);
@@ -26,6 +42,7 @@ export function useChoices(): [Choices, (next: Choices) => void] {
     } catch {
       // Nothing saved, or no storage: start empty.
     }
+    setLoaded(true);
   }, []);
   return [
     choices,
@@ -37,15 +54,19 @@ export function useChoices(): [Choices, (next: Choices) => void] {
         // Storage refused: the choices still hold until the page closes.
       }
     },
+    loaded,
   ];
 }
 
 /** The server's price for the cart with these choices, refreshed whenever the cart or the choices change. */
 export function useQuote(cart: CartView | undefined, choices: Choices) {
   const lines = cart?.lines.map((line) => [line.variantId, line.quantity, line.unitPriceCents]);
+  // Only what prices the cart (typing a street name doesn't ask the server again).
+  const { cep, uf, shippingService, couponCode } = choices;
+  const input: QuoteInput = { cep, uf, shippingService, couponCode };
   return useQuery({
-    queryKey: ["quote", choices, lines],
-    queryFn: () => api<Quote>("/checkout/quote", { body: choices }),
+    queryKey: ["quote", input, lines],
+    queryFn: () => api<Quote>("/checkout/quote", { body: input }),
     enabled: Boolean(cart && cart.lines.length > 0),
     placeholderData: keepPreviousData,
   });

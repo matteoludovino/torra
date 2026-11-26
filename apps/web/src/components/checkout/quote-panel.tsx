@@ -4,16 +4,28 @@ import { UFS, formatBRL, formatCep, type CartView, type Quote } from "@torra/sha
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { ApiFailure } from "@/lib/api";
-import { useChoices, useQuote, type Choices } from "@/lib/checkout";
+import { useQuote, type Choices } from "@/lib/checkout";
 
 const input =
   "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm shadow-xs focus:border-brand-500 focus:ring-3 focus:ring-brand-500/20 focus:outline-none";
 
-/** Shipping to a CEP, a coupon, and the totals the server computes for this cart. */
-export function QuotePanel({ cart }: { cart: CartView }) {
-  const [choices, setChoices] = useChoices();
+/**
+ * Shipping to a CEP, a coupon, and the totals the server computes for this cart. At checkout the CEP comes
+ * from the address form, so the panel shows only the shipping options (`cepField` off).
+ */
+export function QuotePanel({
+  cart,
+  choices,
+  onChange,
+  cepField = true,
+}: {
+  cart: CartView;
+  choices: Choices;
+  onChange: (next: Choices) => void;
+  cepField?: boolean;
+}) {
   const { data: quote, error, isFetching } = useQuote(cart, choices);
-  const set = (change: Partial<Choices>) => setChoices({ ...choices, ...change });
+  const set = (change: Partial<Choices>) => onChange({ ...choices, ...change });
 
   return (
     <div className="grid gap-4" aria-busy={isFetching || undefined}>
@@ -21,7 +33,13 @@ export function QuotePanel({ cart }: { cart: CartView }) {
         <p className="text-sm text-stone-600">Só produtos digitais: sem frete.</p>
       ) : (
         // Keyed by the CEP: the field shows the saved one once it loads from the session.
-        <Shipping key={choices.cep ?? ""} quote={quote} choices={choices} onChange={set} />
+        <Shipping
+          key={choices.cep ?? ""}
+          quote={quote}
+          choices={choices}
+          onChange={set}
+          cepField={cepField}
+        />
       )}
       <Coupon quote={quote} code={choices.couponCode} onChange={(couponCode) => set({ couponCode })} />
       {error ? (
@@ -76,10 +94,12 @@ function Shipping({
   quote,
   choices,
   onChange,
+  cepField,
 }: {
   quote: Quote | undefined;
   choices: Choices;
   onChange: (change: Partial<Choices>) => void;
+  cepField: boolean;
 }) {
   const [cep, setCep] = useState(choices.cep ? formatCep(choices.cep) : "");
   function submit(event: FormEvent) {
@@ -89,34 +109,39 @@ function Shipping({
   return (
     <fieldset className="grid gap-2">
       <legend className="mb-1 text-sm font-medium text-stone-800">Frete</legend>
-      <form onSubmit={submit} className="flex gap-2">
-        <label className="min-w-0 flex-1">
-          <span className="sr-only">CEP</span>
-          <input
-            inputMode="numeric"
-            autoComplete="postal-code"
-            placeholder="CEP"
-            maxLength={9}
-            value={cep}
-            onChange={(event) => setCep(event.target.value)}
-            className={input}
-          />
-        </label>
-        <Button type="submit" variant="secondary">
-          Calcular
-        </Button>
-      </form>
-      {quote?.address ? (
+      {cepField ? (
+        <form onSubmit={submit} className="flex gap-2">
+          <label className="min-w-0 flex-1">
+            <span className="sr-only">CEP</span>
+            <input
+              inputMode="numeric"
+              autoComplete="postal-code"
+              placeholder="CEP"
+              maxLength={9}
+              value={cep}
+              onChange={(event) => setCep(event.target.value)}
+              className={input}
+            />
+          </label>
+          <Button type="submit" variant="secondary">
+            Calcular
+          </Button>
+        </form>
+      ) : null}
+      {cepField && quote?.address ? (
         <p className="text-xs text-stone-600">
           {[quote.address.street, quote.address.city].filter(Boolean).join(", ")}
           {quote.address.city ? "/" : ""}
           {quote.address.uf}
         </p>
       ) : null}
-      {quote?.shippingProblem === "unknown_cep" ? (
+      {!cepField && quote?.shippingProblem ? (
+        <p className="text-sm text-stone-600">Informe o CEP de entrega para ver as opções.</p>
+      ) : null}
+      {cepField && quote?.shippingProblem === "unknown_cep" ? (
         <p className="text-sm text-red-700">CEP não encontrado.</p>
       ) : null}
-      {quote?.shippingProblem === "lookup_unavailable" ? (
+      {cepField && quote?.shippingProblem === "lookup_unavailable" ? (
         <label className="grid gap-1 text-sm text-stone-700">
           A busca de CEP não respondeu. Escolha o estado:
           <select
