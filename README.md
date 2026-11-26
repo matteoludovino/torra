@@ -23,6 +23,12 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
   by a trigger, can't be written directly and can't go below zero. Each customer's first touch of a
   shared variant copies its stock into their sandbox; from then on only their copy moves, so nobody's
   cart can hold anyone else's units, and the shared catalog's stock never moves because of a customer.
+- **A cart that tells the truth.** Visitors fill one behind a cookie of its own (only its hash is stored);
+  signing in or up moves it into the account's. Prices always come from the catalog, never from the
+  browser; a line only remembers the price the customer saw, to say when it changed. Quantities stay
+  within what's left in the customer's corner of the store, ten per line, one of a digital product, and
+  the cart flags what needs attention (sold out, fewer left, new price) before checkout. Accounts without
+  a sandbox (the store's admins) don't shop: they'd be buying the shared stock.
 - **Email people can control.** Receipts and account email always go; order progress updates carry a
   signed unsubscribe link and the one-click header email clients turn into a button.
 
@@ -72,7 +78,7 @@ npm run dev                        # API on :8050, web on http://localhost:3040
 
 1. ✅ Base: monorepo, accounts with a sandbox per customer, outbox, scheduler, audit log, CI
 2. ✅ Catalog and stock (variants, stock levels per sandbox, storefront, search)
-3. Cart (anonymous and signed-in, server prices)
+3. ✅ Cart (visitor and customer carts, server prices, merge on sign-in)
 4. Shipping by CEP, coupons and totals
 5. Orders with stock reservation
 6. Stripe payments (Payment Element, webhooks, reconciliation, digital downloads)
