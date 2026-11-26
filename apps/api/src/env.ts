@@ -39,15 +39,58 @@ const schema = z
     /** Signs links that act without a session (unsubscribing, downloads). Required in
      * production; elsewhere a fixed development value. */
     SIGNING_SECRET: z.string().min(32).optional(),
+    /**
+     * Stripe, in test mode only: live keys are refused, so this code can never take real money. Unset, a
+     * fake gateway stands in (development, tests and end-to-end runs pay with a simulated card).
+     */
+    STRIPE_SECRET_KEY: z
+      .string()
+      .regex(/^(sk|rk)_test_\w+$/, "a test-mode secret key (sk_test_… or rk_test_…)")
+      .optional(),
+    STRIPE_PUBLISHABLE_KEY: z
+      .string()
+      .regex(/^pk_test_\w+$/, "a test-mode publishable key (pk_test_…)")
+      .optional(),
+    /** Verifies webhook signatures (the endpoint's, or `stripe listen`'s, whsec_…). */
+    STRIPE_WEBHOOK_SECRET: z
+      .string()
+      .regex(/^whsec_\w+$/, "a webhook signing secret (whsec_…)")
+      .optional(),
+    /**
+     * Which deployment a payment belongs to, written on every Stripe object: a Stripe sandbox shared by
+     * two deployments (local and CI, say) sends each one events about the other's payments, which this
+     * tells apart.
+     */
+    PAYMENTS_ENV: z
+      .string()
+      .regex(/^[a-z0-9-]{1,30}$/)
+      .default("local"),
   })
   .refine((env) => env.NODE_ENV !== "production" || env.SIGNING_SECRET, {
     path: ["SIGNING_SECRET"],
     message: "required in production (at least 32 characters)",
   })
+  .refine(
+    (env) =>
+      env.NODE_ENV !== "production" ||
+      (env.STRIPE_SECRET_KEY && env.STRIPE_PUBLISHABLE_KEY && env.STRIPE_WEBHOOK_SECRET),
+    { path: ["STRIPE_SECRET_KEY"], message: "Stripe's three test-mode values are required in production" },
+  )
+  .refine((env) => !env.STRIPE_SECRET_KEY || env.STRIPE_PUBLISHABLE_KEY, {
+    path: ["STRIPE_PUBLISHABLE_KEY"],
+    message: "required with STRIPE_SECRET_KEY (the browser needs it for the card form)",
+  })
   .transform((env) => ({
     ...env,
     SIGNING_SECRET: env.SIGNING_SECRET ?? "development-only-signing-secret-not-for-production",
+    /** Stripe when a key is set; otherwise the fake gateway (never in production, by the rule above). */
+    PAYMENT_GATEWAY: env.STRIPE_SECRET_KEY ? ("stripe" as const) : ("fake" as const),
+    /** Without a webhook secret (the fake gateway, or Stripe before `stripe listen`), a fixed one. */
+    STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET ?? FAKE_WEBHOOK_SECRET,
   }));
+
+/** Signs the fake gateway's events, and test events, when no real webhook secret is configured. */
+export const FAKE_WEBHOOK_SECRET = "whsec_development_only_not_a_stripe_secret";
 
 export type Env = z.infer<typeof schema>;
 
