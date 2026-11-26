@@ -29,6 +29,8 @@ import { OutboxService, type Tx } from "../outbox/outbox.service.ts";
 import { PrismaService } from "../prisma/prisma.service.ts";
 import { Scheduler } from "../scheduler/scheduler.service.ts";
 import { Clock } from "../time/clock.ts";
+import { Payments, RECHECK_MS } from "../payments/payments.service.ts";
+import { Downloads } from "./downloads.ts";
 import { orderInclude, summaryOf, viewOf } from "./views.ts";
 
 type PlaceInput = z.infer<typeof placeOrderInput>;
@@ -59,20 +61,24 @@ export class Orders implements OnModuleInit {
     private readonly stock: Stock,
     private readonly outbox: OutboxService,
     private readonly scheduler: Scheduler,
+    private readonly payments: Payments,
+    private readonly downloads: Downloads,
   ) {}
 
   onModuleInit(): void {
     this.scheduler.register({
       name: "order-expiry",
       run: (now) => this.expireDue(now),
-      nextDueAt: async () =>
-        (
-          await this.db.order.findFirst({
-            where: { status: "pending_payment" },
-            orderBy: { expiresAt: "asc" },
-            select: { expiresAt: true },
-          })
-        )?.expiresAt ?? null,
+      // An order Stripe was asked about after it expired (its payment was processing) waits for the
+      // payment check's interval before it's tried again.
+      nextDueAt: async () => {
+        const [row] = await this.db.$queryRaw<{ due: Date | null }[]>`
+          SELECT min(CASE WHEN "paymentCheckedAt" >= "expiresAt"
+                          THEN "paymentCheckedAt" + make_interval(secs => ${RECHECK_MS / 1000})
+                          ELSE "expiresAt" END) AS due
+          FROM orders WHERE status = 'pending_payment'`;
+        return row?.due ?? null;
+      },
     });
   }
 
@@ -81,7 +87,9 @@ export class Orders implements OnModuleInit {
     if (input.address) await this.checkState(input.address);
     let orderId: string;
     try {
-      orderId = await transaction(this.db, (tx) => this.placeIn(tx, user, sandboxId, input));
+      orderId = await this.closing((released) =>
+        transaction(this.db, (tx) => this.placeIn(tx, user, sandboxId, input, released)),
+      );
     } catch (error) {
       // The cart's lock serializes a customer's checkouts, so the unique indexes (one waiting order per
       // cart, one live use of a "once per customer" coupon) are a backstop that shouldn't fire.
@@ -95,7 +103,13 @@ export class Orders implements OnModuleInit {
     return this.view(user, orderId);
   }
 
-  private async placeIn(tx: Tx, user: AuthUser, sandboxId: string, input: PlaceInput): Promise<string> {
+  private async placeIn(
+    tx: Tx,
+    user: AuthUser,
+    sandboxId: string,
+    input: PlaceInput,
+    released: string | null,
+  ): Promise<string> {
     const [cart] = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM carts WHERE "userId" = ${user.id}::uuid FOR UPDATE`;
     const view = await this.carts.lines(tx, cart?.id ?? null, sandboxId);
@@ -127,8 +141,8 @@ export class Orders implements OnModuleInit {
       if (pending.expiresAt > now && sameOrder(pending, view, input.couponCode ?? null, service, address)) {
         return pending.id;
       }
-      if (pending.expiresAt > now) await this.closeIn(tx, pending, "canceled", user.id, "replaced");
-      else await this.closeIn(tx, pending, "expired", null, "not_paid");
+      if (pending.expiresAt > now) await this.closeIn(tx, pending, "canceled", user.id, "replaced", released);
+      else await this.closeIn(tx, pending, "expired", null, "not_paid", released);
     }
 
     // The coupon, as it stands now (checked again under its lock below, after the stock).
@@ -287,36 +301,50 @@ export class Orders implements OnModuleInit {
 
   /** The customer gives up on an order waiting for payment: its stock and coupon go back. */
   async cancel(user: AuthUser, id: string): Promise<OrderView> {
-    await transaction(this.db, async (tx) => {
-      const order = await this.owned(tx, user, id);
-      if (order.expiresAt <= this.clock.now()) await this.closeIn(tx, order, "expired", null, "not_paid");
-      else await this.closeIn(tx, order, "canceled", user.id, "customer");
-    });
+    await this.closing((released) =>
+      transaction(this.db, async (tx) => {
+        const order = await this.owned(tx, user, id);
+        if (order.expiresAt <= this.clock.now()) {
+          await this.closeIn(tx, order, "expired", null, "not_paid", released);
+        } else await this.closeIn(tx, order, "canceled", user.id, "customer", released);
+      }),
+    );
     return this.view(user, id);
   }
 
   /** Orders past their hold, each closed in its own transaction (a failure doesn't hold up the rest). */
   async expireDue(now: Date): Promise<number> {
     const due = await this.db.order.findMany({
-      where: { status: "pending_payment", expiresAt: { lte: now } },
+      where: {
+        status: "pending_payment",
+        expiresAt: { lte: now },
+        // Asked about after it expired (a payment processing): again only after a while.
+        OR: [
+          { paymentCheckedAt: null },
+          { paymentCheckedAt: { lt: this.db.order.fields.expiresAt } },
+          { paymentCheckedAt: { lte: new Date(now.getTime() - RECHECK_MS) } },
+        ],
+      },
       orderBy: { expiresAt: "asc" },
       take: 20,
     });
     let expired = 0;
     for (const order of due) {
       try {
-        await transaction(this.db, async (tx) => {
-          await this.closeIn(tx, order, "expired", null, "not_paid");
-          await this.outbox.add(
-            tx,
-            ORDER_EVENTS.expired,
-            { orderId: order.id },
-            { sandboxId: order.sandboxId },
-          );
-        });
+        await this.closing((released) =>
+          transaction(this.db, async (tx) => {
+            await this.closeIn(tx, order, "expired", null, "not_paid", released);
+            await this.outbox.add(
+              tx,
+              ORDER_EVENTS.expired,
+              { orderId: order.id },
+              { sandboxId: order.sandboxId },
+            );
+          }),
+        );
         expired += 1;
       } catch (error) {
-        // Paid or cancelled meanwhile: nothing to do.
+        // Paid, cancelled or with a payment processing: nothing to do now.
         if (!(error instanceof ConflictException)) {
           this.logger.error(
             `expiring order ${order.number} failed: ${error instanceof Error ? error.message : error}`,
@@ -344,7 +372,37 @@ export class Orders implements OnModuleInit {
     const full = await this.db.order.findUniqueOrThrow({ where: { id: order.id }, include: orderInclude });
     // Past its hold, it shows as expired right away; the sweep gives the stock back.
     if (full.status === "pending_payment" && full.expiresAt <= this.clock.now()) this.scheduler.kick();
-    return viewOf(full, this.clock.now());
+    return viewOf(full, this.clock.now(), (itemId) => this.downloads.link(itemId));
+  }
+
+  /**
+   * Runs work that closes an order waiting for payment. Its PaymentIntent, if it has one, is let go of
+   * first, outside any transaction (Stripe is never called in one): then the work runs again, now allowed
+   * to close it. If the order was paid meanwhile, or its payment is processing, it stays open.
+   */
+  private async closing<T>(work: (released: string | null) => Promise<T>): Promise<T> {
+    let released: string | null = null;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await work(released);
+      } catch (error) {
+        if (!(error instanceof Unreleased) || attempt >= 3) throw error;
+        const outcome = await this.payments.release(error.order);
+        if (outcome === "paid") {
+          throw new ConflictException({
+            code: "already_paid",
+            message: `O pedido #${error.order.number} acabou de ser pago: confira seus pedidos.`,
+          });
+        }
+        if (outcome === "processing") {
+          throw new ConflictException({
+            code: "payment_processing",
+            message: `O pagamento do pedido #${error.order.number} está em processamento: aguarde a confirmação.`,
+          });
+        }
+        released = error.order.paymentIntentId;
+      }
+    }
   }
 
   /**
@@ -357,12 +415,18 @@ export class Orders implements OnModuleInit {
     to: "canceled" | "expired",
     actorId: string | null,
     reason: string,
+    released: string | null,
   ) {
     const now = this.clock.now();
+    // Only with the PaymentIntent let go of (or none): a payable order is never closed.
     const { count } = await tx.order.updateMany({
-      where: { id: order.id, status: "pending_payment" },
+      where: { id: order.id, status: "pending_payment", paymentIntentId: released },
       data: { status: to, closedAt: now },
     });
+    if (count === 0) {
+      const current = await tx.order.findUnique({ where: { id: order.id } });
+      if (current?.status === "pending_payment") throw new Unreleased(current);
+    }
     expectChanged(count, { code: "not_pending", message: "Este pedido não está mais aguardando pagamento." });
     const held = await tx.stockMovement.findMany({
       where: { orderId: order.id, kind: "reserve" },
@@ -444,4 +508,11 @@ function sameOrder(
     pending.shippingService === shippingService &&
     JSON.stringify(stored) === JSON.stringify(where(address))
   );
+}
+
+/** Closing an order whose PaymentIntent hasn't been let go of yet (see `closing`). */
+class Unreleased extends Error {
+  constructor(readonly order: Order) {
+    super(`order ${order.number} still has a live PaymentIntent`);
+  }
 }

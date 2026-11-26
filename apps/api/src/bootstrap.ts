@@ -16,7 +16,8 @@ export async function createApp(
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule.with(env, { clock }),
     new FastifyAdapter({ trustProxy: env.TRUST_PROXY, bodyLimit: 256 * 1024 }),
-    { logger: logger ? appLogger(env) : false },
+    // The raw body is kept for Stripe's webhook, whose signature covers the exact bytes sent.
+    { logger: logger ? appLogger(env) : false, rawBody: true },
   );
   await app.register(cookie);
   app.setGlobalPrefix("api");

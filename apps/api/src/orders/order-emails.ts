@@ -5,6 +5,7 @@ import { Mailer } from "../mail/mailer.service.ts";
 import { update } from "../mail/templates.ts";
 import { OutboxService } from "../outbox/outbox.service.ts";
 import { PrismaService } from "../prisma/prisma.service.ts";
+import { PAYMENT_EVENTS } from "../payments/payments.service.ts";
 import { ORDER_EVENTS } from "./orders.service.ts";
 
 /**
@@ -36,6 +37,30 @@ export class OrderEmails implements OnModuleInit {
           [
             `Seu pedido #${order.number} foi registrado: ${items.join("; ")}.`,
             `Total: ${formatBRL(order.totalCents)}. Os itens ficam guardados para você por 30 minutos, enquanto o pagamento não é concluído.`,
+          ],
+          { label: "Ver o pedido", url: this.link(order.id) },
+        ),
+      );
+    });
+    this.outbox.handle(PAYMENT_EVENTS.paid, async ({ payload }) => {
+      const order = await this.order(payload);
+      if (!order || order.paidAt === null) return;
+      const physical = order.items.some((item) => item.kind === "physical");
+      const digital = order.items.some((item) => item.kind === "digital");
+      await this.mailer.send(
+        this.recipient(order),
+        "order_paid",
+        update(
+          order.user.name,
+          `Pagamento confirmado: pedido #${order.number}`,
+          [
+            order.totalCents > 0
+              ? `Recebemos o pagamento de ${formatBRL(order.amountPaidCents)} do pedido #${order.number}.`
+              : `Seu pedido #${order.number} está confirmado (não houve nada a pagar).`,
+            ...(digital ? ["Seus produtos digitais já podem ser baixados na página do pedido."] : []),
+            ...(physical
+              ? ["Agora vamos preparar o envio, e avisamos quando sair, com o código de rastreio."]
+              : []),
           ],
           { label: "Ver o pedido", url: this.link(order.id) },
         ),

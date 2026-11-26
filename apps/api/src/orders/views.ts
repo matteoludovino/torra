@@ -27,7 +27,10 @@ export function summaryOf(order: Order, items: number, now: Date): OrderSummary 
   };
 }
 
-export function viewOf(order: FullOrder, now: Date): OrderView {
+const PAID = new Set<OrderStatus>(["paid", "preparing", "shipped", "delivered"]);
+
+/** `link` makes a short-lived download link for a paid order's digital item. */
+export function viewOf(order: FullOrder, now: Date, link: (orderItemId: string) => string): OrderView {
   const status = shownStatus(order, now);
   return {
     ...summaryOf(order, order.items.length, now),
@@ -52,6 +55,8 @@ export function viewOf(order: FullOrder, now: Date): OrderView {
         }
       : null,
     expiresAt: status === "pending_payment" ? order.expiresAt.toISOString() : null,
+    paidAt: order.paidAt?.toISOString() ?? null,
+    paymentReview: order.paymentProblem !== null,
     trackingCode: order.trackingCode,
     lines: order.items.map((item) => ({
       variantId: item.variantId,
@@ -63,6 +68,11 @@ export function viewOf(order: FullOrder, now: Date): OrderView {
       lineTotalCents: item.lineTotalCents,
       discountCents: item.discountCents,
     })),
+    downloads: PAID.has(order.status)
+      ? order.items
+          .filter((item) => item.kind === "digital")
+          .map((item) => ({ variantId: item.variantId, title: item.title, url: link(item.id) }))
+      : [],
     events: order.events.map((event) => ({
       type: event.type,
       at: event.createdAt.toISOString(),

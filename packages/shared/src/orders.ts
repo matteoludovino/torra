@@ -89,7 +89,24 @@ export interface OrderView extends OrderSummary {
   } | null;
   /** While waiting for payment: until when stock and coupon are held. */
   expiresAt: string | null;
+  paidAt: string | null;
+  /** The payment didn't match the order (it's being looked into; the order is not paid). */
+  paymentReview: boolean;
   trackingCode: string | null;
   lines: OrderItemView[];
+  /** A paid order's digital items: short-lived signed links, made fresh with each view. */
+  downloads: { variantId: string; title: string; url: string }[];
   events: OrderEventView[];
 }
+
+/**
+ * Paying for an order: Stripe's card form (with the PaymentIntent's client secret), the fake gateway's
+ * simulated one, or nothing to fill in (free, or already settled).
+ */
+export type PaymentStart =
+  | { kind: "stripe" | "fake"; clientSecret: string; publishableKey: string | null; amountCents: number }
+  | { kind: "free" }
+  | { kind: "settled" };
+
+/** The fake gateway's card form: what the simulated customer does. */
+export const FAKE_OUTCOMES = ["succeed", "decline", "process", "require_action"] as const;
