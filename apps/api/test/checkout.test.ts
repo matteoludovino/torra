@@ -5,7 +5,7 @@ import { uuidv7 } from "../src/common/ids.ts";
 import { PrismaService } from "../src/prisma/prisma.service.ts";
 import { seedCatalog, seedId } from "../src/seed/seed.ts";
 import { FakeClock } from "../src/time/clock.ts";
-import { Browser, customer, resetDb, testApp } from "./support.ts";
+import { Browser, bareOrder, customer, resetDb, testApp } from "./support.ts";
 
 const clock = new FakeClock();
 const app = await testApp({}, { clock });
@@ -180,18 +180,21 @@ describe("coupons", () => {
     );
     expect((await quote(a.browser, { couponCode: "ONTEM" })).couponProblem).toBe("Este cupom expirou.");
 
-    // TORRA20 allows 100 uses per corner: A has used them all, B none.
+    // TORRA20 allows a number of uses per corner (2, for this test): A has used them all, B none.
     const torra = seedId("coupon:TORRA20");
-    await db.couponRedemption.createMany({
-      data: Array.from({ length: 100 }, () => ({
-        id: uuidv7(),
-        couponId: torra,
-        userId: a.me.id,
-        sandboxId: a.sandboxId,
-        orderId: uuidv7(),
-        exclusive: false,
-      })),
-    });
+    await db.coupon.update({ where: { id: torra }, data: { maxRedemptions: 2 } });
+    for (let n = 0; n < 2; n++) {
+      await db.couponRedemption.create({
+        data: {
+          id: uuidv7(),
+          couponId: torra,
+          userId: a.me.id,
+          sandboxId: a.sandboxId,
+          orderId: await bareOrder(app, a.sandboxId, a.me.id),
+          exclusive: false,
+        },
+      });
+    }
     expect((await quote(a.browser, { couponCode: "TORRA20" })).couponProblem).toBe("Este cupom esgotou.");
     expect((await quote(b.browser, { couponCode: "TORRA20" })).couponProblem).toBeNull();
     // A released use (its order expired) frees a place.
@@ -206,14 +209,14 @@ describe("coupons", () => {
     const someone = await customer(app);
     await add(someone.browser, KG);
     const welcome = seedId("coupon:BEMVINDO10");
-    const use = (orderId = uuidv7()) =>
+    const use = async () =>
       db.couponRedemption.create({
         data: {
           id: uuidv7(),
           couponId: welcome,
           userId: someone.me.id,
           sandboxId: someone.sandboxId,
-          orderId,
+          orderId: await bareOrder(app, someone.sandboxId, someone.me.id),
           exclusive: true,
         },
       });
@@ -258,7 +261,7 @@ describe("coupons", () => {
           couponId: seedId("coupon:TORRA20"),
           userId: owner.me.id,
           sandboxId: other.sandboxId,
-          orderId: uuidv7(),
+          orderId: await bareOrder(app, other.sandboxId, other.me.id),
           exclusive: false,
         },
       }),

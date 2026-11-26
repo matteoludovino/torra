@@ -5,6 +5,7 @@ import { hashToken, newToken } from "../src/common/secrets.ts";
 import { loadEnv } from "../src/env.ts";
 import { PrismaService } from "../src/prisma/prisma.service.ts";
 import { Scheduler } from "../src/scheduler/scheduler.service.ts";
+import { seedId } from "../src/seed/seed.ts";
 import type { Clock } from "../src/time/clock.ts";
 
 export const ORIGIN = "http://localhost:3040";
@@ -30,7 +31,7 @@ export async function resetDb(db: PrismaService): Promise<void> {
     db.$executeRawUnsafe(`SELECT set_config('torra.purge', 'on', true)`),
     db.$executeRawUnsafe(
       `TRUNCATE users, sandboxes, sessions, email_tokens, sent_emails, outbox_events, audit_entries,
-        products, variants, stock_levels, stock_movements, carts, cart_items, coupons, coupon_redemptions RESTART IDENTITY CASCADE`,
+        products, variants, stock_levels, stock_movements, carts, cart_items, coupons, coupon_redemptions, orders, order_items, order_events RESTART IDENTITY CASCADE`,
     ),
   ]);
 }
@@ -141,4 +142,51 @@ export async function directUser(
 /** A signed-in admin of the store itself (no sandbox), or of a demo's sandbox. */
 export async function admin(app: App, sandboxId: string | null = null) {
   return directUser(app, { sandboxId, name: "Admin", role: "admin" });
+}
+
+/**
+ * A real order to hang stock movements or a coupon use on, in a sandbox (by a customer of it, made here
+ * unless given): one seeded e-book, already cancelled. Needs the seeded catalog.
+ */
+export async function bareOrder(app: App, sandboxId: string, userId?: string): Promise<string> {
+  const db = app.get(PrismaService);
+  if (!userId) {
+    userId = uuidv7();
+    await db.user.create({
+      data: { id: userId, email: `${userId}@teste.torra`, name: "Cliente", role: "customer", sandboxId },
+    });
+  }
+  const id = uuidv7();
+  await db.order.create({
+    data: {
+      id,
+      userId,
+      sandboxId,
+      email: `${userId}@teste.torra`,
+      status: "canceled",
+      subtotalCents: 2900,
+      discountCents: 0,
+      shippingCents: 0,
+      totalCents: 2900,
+      expiresAt: new Date(),
+      closedAt: new Date(),
+      createdAt: new Date(),
+      items: {
+        create: {
+          id: uuidv7(),
+          variantId: seedId("variant:EBOOK-GELADO"),
+          kind: "digital",
+          title: "E-book",
+          options: "",
+          sku: "EBOOK-GELADO",
+          unitPriceCents: 2900,
+          quantity: 1,
+          lineTotalCents: 2900,
+          discountCents: 0,
+          position: 0,
+        },
+      },
+    },
+  });
+  return id;
 }

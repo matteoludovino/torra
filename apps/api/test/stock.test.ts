@@ -5,7 +5,7 @@ import { PrismaService } from "../src/prisma/prisma.service.ts";
 import { DEMO_LIFETIME_MS, Sandboxes } from "../src/sandbox/sandboxes.service.ts";
 import { seedCatalog, seedId } from "../src/seed/seed.ts";
 import { FakeClock } from "../src/time/clock.ts";
-import { resetDb, testApp } from "./support.ts";
+import { bareOrder, resetDb, testApp } from "./support.ts";
 
 const clock = new FakeClock();
 const app = await testApp({}, { clock });
@@ -23,10 +23,12 @@ const COFFEE = seedId("variant:MANT-250-G");
 const COURSE = seedId("variant:CURSO-COADO");
 
 const sandbox = () => db.$transaction((tx) => app.get(Sandboxes).create(tx, null));
-const order = () => uuidv7();
 const move = (movement: Movement) => db.$transaction((tx) => stock.move(tx, movement));
-const reserve = (variantId: string, sandboxId: string | null, quantity: number) =>
-  move({ variantId, sandboxId, kind: "reserve", quantity: -quantity, orderId: order() });
+/** An order in the sandbox to reserve for (a random id for the shared catalog, which has no orders). */
+const order = (sandboxId: string | null) =>
+  sandboxId ? bareOrder(app, sandboxId) : Promise.resolve(uuidv7());
+const reserve = async (variantId: string, sandboxId: string | null, quantity: number) =>
+  move({ variantId, sandboxId, kind: "reserve", quantity: -quantity, orderId: await order(sandboxId) });
 const level = async (variantId: string, sandboxId: string | null) =>
   (await stock.available(db, [variantId], sandboxId)).get(variantId);
 
@@ -54,7 +56,13 @@ describe("stock per sandbox (copy-on-write)", () => {
     await expect(reserve(DRIPPER, a, 1)).rejects.toBeInstanceOf(OutOfStock);
     await db.$transaction(async (tx) => {
       await expect(
-        stock.move(tx, { variantId: DRIPPER, sandboxId: a, kind: "reserve", quantity: -1, orderId: order() }),
+        stock.move(tx, {
+          variantId: DRIPPER,
+          sandboxId: a,
+          kind: "reserve",
+          quantity: -1,
+          orderId: await order(a),
+        }),
       ).rejects.toBeInstanceOf(OutOfStock);
       // The same transaction goes on.
       await stock.move(tx, {
@@ -62,7 +70,7 @@ describe("stock per sandbox (copy-on-write)", () => {
         sandboxId: a,
         kind: "reserve",
         quantity: -1,
-        orderId: order(),
+        orderId: await order(a),
       });
     });
     expect(await level(DRIPPER, a)).toBe(0);
@@ -141,7 +149,7 @@ describe("the database", () => {
       /stock_movements_order_kinds/,
     );
     await expect(
-      move({ variantId: COFFEE, sandboxId: null, kind: "reserve", quantity: 1, orderId: order() }),
+      move({ variantId: COFFEE, sandboxId: null, kind: "reserve", quantity: 1, orderId: await order(null) }),
     ).rejects.toThrow(/stock_movements_sign/);
     expect(await stock.reconcile()).toEqual([]);
   });

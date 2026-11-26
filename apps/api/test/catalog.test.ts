@@ -5,7 +5,7 @@ import { uuidv7 } from "../src/common/ids.ts";
 import { PrismaService } from "../src/prisma/prisma.service.ts";
 import { seedCatalog, seedId } from "../src/seed/seed.ts";
 import { FakeClock } from "../src/time/clock.ts";
-import { Browser, admin, customer, resetDb, testApp } from "./support.ts";
+import { Browser, admin, bareOrder, customer, resetDb, testApp } from "./support.ts";
 
 const clock = new FakeClock();
 const app = await testApp({}, { clock });
@@ -90,13 +90,14 @@ describe("the storefront", () => {
     // A customer's reservations show in their own view only.
     const someone = await customer(app);
     const variantId = seedId("variant:CAPA-250-G");
+    const orderId = await bareOrder(app, someone.sandboxId, someone.me.id);
     await db.$transaction((tx) =>
       app.get(Stock).move(tx, {
         variantId,
         sandboxId: someone.sandboxId,
         kind: "reserve",
         quantity: -2,
-        orderId: uuidv7(),
+        orderId,
       }),
     );
     const mine = await product(someone.browser, "caparao-natural-fermentado");

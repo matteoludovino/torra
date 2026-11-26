@@ -6,7 +6,7 @@ import { PrismaService } from "../src/prisma/prisma.service.ts";
 import { Scheduler } from "../src/scheduler/scheduler.service.ts";
 import { seedCatalog, seedId } from "../src/seed/seed.ts";
 import { FakeClock } from "../src/time/clock.ts";
-import { Browser, PASSWORD, admin, customer, resetDb, testApp } from "./support.ts";
+import { Browser, PASSWORD, admin, bareOrder, customer, resetDb, testApp } from "./support.ts";
 
 const clock = new FakeClock();
 const app = await testApp({}, { clock });
@@ -173,10 +173,9 @@ describe("a customer's cart", () => {
     expect((await cart(browser)).lines[0]).toMatchObject({ quantity: 2, issue: null });
 
     // Units reserved in her own sandbox (an order, from stage 5 on) leave her fewer; others don't see it.
+    const orderId = await bareOrder(app, sandboxId!);
     await db.$transaction((tx) =>
-      app
-        .get(Stock)
-        .move(tx, { variantId: DRIPPER, sandboxId, kind: "reserve", quantity: -1, orderId: uuidv7() }),
+      app.get(Stock).move(tx, { variantId: DRIPPER, sandboxId, kind: "reserve", quantity: -1, orderId }),
     );
     expect((await cart(browser)).lines[0]).toMatchObject({ issue: "insufficient", available: 1 });
     const other = new Browser(app);

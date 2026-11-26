@@ -26,6 +26,7 @@ model Sandbox {
   carts          Cart[]
   coupons        Coupon[]
   redemptions    CouponRedemption[]
+  orders         Order[]
 
   @@index([expiresAt])
   @@map("sandboxes")
@@ -79,6 +80,7 @@ model User {
   emailTokens     EmailToken[]
   cart            Cart?
   redemptions     CouponRedemption[]
+  orders          Order[]
 
   @@index([sandboxId])
   @@map("users")
@@ -210,6 +212,7 @@ model Variant {
   stockLevels    StockLevel[]
   stockMovements StockMovement[]
   cartItems      CartItem[]
+  orderItems     OrderItem[]
 
   @@unique([sku, sandboxId])
   @@index([productId, position])
@@ -259,8 +262,9 @@ model StockMovement {
   kind      StockMovementKind
   /// Signed: +10 seeds ten, -2 reserves two.
   quantity  Int
-  /// The order a reservation, release or restock belongs to (orders arrive in stage 5).
+  /// The order a reservation, release or restock belongs to.
   orderId   String?           @db.Uuid
+  order     Order?            @relation(fields: [orderId], references: [id], onDelete: Cascade)
   reason    String?
   actorId   String?           @db.Uuid
   createdAt DateTime          @default(now()) @db.Timestamptz(3)
@@ -284,6 +288,7 @@ model Cart {
   /// A visitor's cart left alone for 30 days is removed.
   updatedAt DateTime   @db.Timestamptz(3)
   items     CartItem[]
+  orders    Order[]
 
   @@index([updatedAt])
   @@map("carts")
@@ -330,6 +335,7 @@ model Coupon {
   active           Boolean            @default(true)
   createdAt        DateTime           @default(now()) @db.Timestamptz(3)
   redemptions      CouponRedemption[]
+  orders           Order[]
 
   @@unique([code, sandboxId])
   @@map("coupons")
@@ -347,6 +353,7 @@ model CouponRedemption {
   sandbox    Sandbox   @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
   /// One coupon per order.
   orderId    String    @unique @db.Uuid
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   /// The coupon's "once per customer", copied in: the partial unique index below needs it in its row.
   exclusive  Boolean
   createdAt  DateTime  @default(now()) @db.Timestamptz(3)
@@ -357,4 +364,119 @@ model CouponRedemption {
   @@unique([couponId, userId])
   @@index([couponId, sandboxId])
   @@map("coupon_redemptions")
+}
+
+/// Where an order is in its life. Money (paid, refunded, disputed) is kept apart, in its own columns: a
+/// partly refunded order still ships.
+enum OrderStatus {
+  /// Placed: stock and coupon held until it's paid or expires (30 minutes).
+  pending_payment
+  paid
+  preparing
+  shipped
+  delivered
+  /// By the customer before paying, or by an admin (with a refund) before shipping.
+  canceled
+  /// Not paid in time: stock and coupon went back.
+  expired
+}
+
+/// What a customer bought, frozen when placed: prices, titles, options, address, shipping and coupon as
+/// they were. The database refuses to change its money afterwards (see the migration).
+model Order {
+  id                  String            @id @db.Uuid
+  /// For people: "#1042".
+  number              Int               @unique @default(autoincrement())
+  userId              String            @db.Uuid
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sandboxId           String            @db.Uuid
+  sandbox             Sandbox           @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  /// The cart it came from: one order waiting for payment per cart (a partial unique index).
+  cartId              String?           @db.Uuid
+  cart                Cart?             @relation(fields: [cartId], references: [id], onDelete: SetNull)
+  status              OrderStatus       @default(pending_payment)
+  email               String            @db.VarChar(254)
+  subtotalCents       Int
+  discountCents       Int
+  shippingCents       Int
+  totalCents          Int
+  couponId            String?           @db.Uuid
+  coupon              Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponCode          String?           @db.VarChar(30)
+  shippingService     String?           @db.VarChar(20)
+  shippingDaysMin     Int?
+  shippingDaysMax     Int?
+  /// The delivery address (physical items only).
+  recipient           String?           @db.VarChar(100)
+  cep                 String?           @db.Char(8)
+  street              String?           @db.VarChar(120)
+  streetNumber        String?           @db.VarChar(20)
+  complement          String?           @db.VarChar(60)
+  district            String?           @db.VarChar(80)
+  city                String?           @db.VarChar(80)
+  uf                  String?           @db.Char(2)
+  /// Until when stock and coupon are held for payment.
+  expiresAt           DateTime          @db.Timestamptz(3)
+  /// Stripe (stage 6).
+  paymentIntentId     String?           @unique @db.VarChar(80)
+  latestChargeId      String?           @db.VarChar(80)
+  amountPaidCents     Int               @default(0)
+  amountRefundedCents Int               @default(0)
+  disputeStatus       String?           @db.VarChar(40)
+  paidAt              DateTime?         @db.Timestamptz(3)
+  trackingCode        String?           @db.VarChar(40)
+  shippedAt           DateTime?         @db.Timestamptz(3)
+  deliveredAt         DateTime?         @db.Timestamptz(3)
+  closedAt            DateTime?         @db.Timestamptz(3)
+  createdAt           DateTime          @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @db.Timestamptz(3)
+  items               OrderItem[]
+  events              OrderEvent[]
+  redemption          CouponRedemption?
+  stockMovements      StockMovement[]
+
+  /// Partial in the migration: WHERE status = 'pending_payment'.
+  @@unique([cartId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, expiresAt])
+  @@map("orders")
+}
+
+/// One line of an order, as it was bought.
+model OrderItem {
+  id             String      @id @db.Uuid
+  orderId        String      @db.Uuid
+  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId      String      @db.Uuid
+  variant        Variant     @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  kind           ProductKind
+  title          String      @db.VarChar(100)
+  /// "250 g · Em grãos"; empty for a single-variant product.
+  options        String      @db.VarChar(160)
+  sku            String      @db.VarChar(40)
+  unitPriceCents Int
+  quantity       Int
+  lineTotalCents Int
+  /// This line's share of the order's discount.
+  discountCents  Int
+  weightGrams    Int?
+  position       Int
+
+  @@unique([orderId, variantId])
+  @@map("order_items")
+}
+
+/// What happened to an order, and who did it: the timeline the customer and the admins see. Append-only.
+model OrderEvent {
+  id        String   @id @db.Uuid
+  orderId   String   @db.Uuid
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type      String   @db.VarChar(40)
+  /// Null: the system (expiry, payment confirmations).
+  actorId   String?  @db.Uuid
+  data      Json     @default("{}")
+  createdAt DateTime @db.Timestamptz(3)
+
+  @@index([orderId, createdAt])
+  @@map("order_events")
 }
