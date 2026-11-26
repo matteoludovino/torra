@@ -7,8 +7,10 @@ import {
   type OrderView,
   type ShippingService,
 } from "@torra/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { PaymentPanel } from "@/components/orders/payment-panel";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { RequireSession } from "@/components/require-session";
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -16,7 +18,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
 import { ApiFailure } from "@/lib/api";
 import { dateTime } from "@/lib/format";
-import { useCancelOrder, useOrder } from "@/lib/orders";
+import { CART_KEY } from "@/lib/cart";
+import { paymentProcessing, useCancelOrder, useOrder, useSyncPayment } from "@/lib/orders";
 
 /** One of the customer's orders: where it stands, what was bought, for how much, and what happened. */
 export function OrderScreen({ id }: { id: string }) {
@@ -36,6 +39,21 @@ export function OrderScreen({ id }: { id: string }) {
 
 function Order({ id }: { id: string }) {
   const { data: order, error, refetch } = useOrder(id);
+  const sync = useSyncPayment(id);
+  const client = useQueryClient();
+  // Paid (however the page learned it): its lines have left the cart.
+  const paidAt = order?.paidAt;
+  useEffect(() => {
+    if (paidAt) void client.invalidateQueries({ queryKey: CART_KEY });
+  }, [paidAt, client]);
+  // Back from a payment that left the page (Stripe adds ?payment_intent=…): check now, tidy the address.
+  useEffect(() => {
+    if (!new URLSearchParams(location.search).has("payment_intent")) return;
+    history.replaceState(null, "", location.pathname);
+    sync.mutate();
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   if (error) {
     return error instanceof ApiFailure && error.status === 404 ? (
       <div className="grid justify-items-center gap-3 rounded-2xl border border-dashed border-stone-300 p-10 text-center">
@@ -57,6 +75,28 @@ function Order({ id }: { id: string }) {
         <p className="basis-full text-sm text-stone-600">Feito em {dateTime(order.createdAt)}</p>
       </header>
       <Standing order={order} onExpired={() => void refetch()} />
+      <Payment order={order} />
+      {order.downloads.length > 0 ? (
+        <section className="grid gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
+          <h2 className="font-semibold text-sky-950">Seus downloads</h2>
+          <ul className="grid gap-2">
+            {order.downloads.map((download) => (
+              <li key={download.variantId}>
+                <a
+                  href={download.url}
+                  download
+                  className="inline-flex items-center gap-2 text-sm font-medium text-sky-900 underline underline-offset-2"
+                >
+                  Baixar {download.title} (PDF)
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-sky-900/80">
+            Os links valem por uma hora; abra esta página de novo quando quiser baixar outra vez.
+          </p>
+        </section>
+      ) : null}
       <div className="grid gap-6 md:grid-cols-[1fr_18rem] md:items-start">
         <section
           aria-label="Itens"
@@ -135,13 +175,14 @@ function Standing({ order, onExpired }: { order: OrderView; onExpired: () => voi
             Aguardando pagamento. Os itens ficam guardados para você por mais{" "}
             <Countdown until={order.expiresAt} onEnd={onExpired} />.
           </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button disabled>Pagar {formatBRL(order.totalCents)}</Button>
-            <Button variant="secondary" onClick={() => setAsking(true)}>
-              Cancelar pedido
-            </Button>
-          </div>
-          <p className="text-xs">O pagamento com cartão chega numa próxima versão da loja.</p>
+          {/* A payment processing can't be stopped: it settles, or fails, on its own. */}
+          {paymentProcessing(order) ? null : (
+            <div>
+              <Button variant="secondary" onClick={() => setAsking(true)}>
+                Cancelar pedido
+              </Button>
+            </div>
+          )}
         </div>
         <Dialog open={asking} onClose={() => setAsking(false)} title={`Cancelar o pedido #${order.number}?`}>
           <p className="text-sm text-stone-700">
@@ -165,6 +206,16 @@ function Standing({ order, onExpired }: { order: OrderView; onExpired: () => voi
             </Button>
           </div>
         </Dialog>
+      </Notice>
+    );
+  }
+  if (order.paidAt && order.status !== "canceled") {
+    return (
+      <Notice tone="success">
+        Pagamento confirmado em {dateTime(order.paidAt)}.
+        {order.lines.some((line) => line.kind === "physical")
+          ? " Agora preparamos o envio e avisamos por e-mail quando sair."
+          : ""}
       </Notice>
     );
   }
@@ -197,6 +248,35 @@ function Standing({ order, onExpired }: { order: OrderView; onExpired: () => voi
   return null;
 }
 
+/** Paying, for an order waiting for it: the card form, or why there's none right now. */
+function Payment({ order }: { order: OrderView }) {
+  if (order.status !== "pending_payment" || !order.expiresAt) return null;
+  if (order.paymentReview) {
+    return (
+      <Notice tone="info">
+        Estamos conferindo seu pagamento com o Stripe. Nada mais precisa ser feito agora: avisamos por e-mail.
+      </Notice>
+    );
+  }
+  if (paymentProcessing(order)) {
+    return (
+      <Notice tone="info">
+        Seu pagamento está em processamento. Assim que for confirmado, este pedido muda sozinho e avisamos por
+        e-mail.
+      </Notice>
+    );
+  }
+  return (
+    <section
+      aria-label="Pagamento"
+      className="grid gap-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"
+    >
+      <h2 className="font-semibold">Pagamento com cartão</h2>
+      <PaymentPanel order={order} />
+    </section>
+  );
+}
+
 /** "29:41", ticking; tells the page when it's over. */
 function Countdown({ until, onEnd }: { until: string; onEnd: () => void }) {
   const end = new Date(until).getTime();
@@ -223,6 +303,10 @@ function Countdown({ until, onEnd }: { until: string; onEnd: () => void }) {
 
 const EVENTS: Record<string, string> = {
   placed: "Pedido recebido",
+  paid: "Pagamento confirmado",
+  payment_processing: "Pagamento em processamento",
+  payment_problem: "Pagamento em análise",
+  late_payment_refunded: "Pagamento estornado (o pedido já estava encerrado)",
   canceled: "Cancelado",
   expired: "Expirou sem pagamento",
 };

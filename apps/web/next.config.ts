@@ -7,13 +7,17 @@ const apiOrigin = process.env.API_ORIGIN ?? "http://localhost:8050";
 // Pages are prerendered (static shell), so the CSP can't carry a per-request nonce: scripts allow
 // 'unsafe-inline', as the Next.js CSP guide prescribes for that case.
 const isDev = process.env.NODE_ENV === "development";
+// Stripe.js (the card form and 3-D Secure) as Stripe's security guide lists it for the Payment Element;
+// Google Maps (Address Element) and Link aren't used: payments are cards only.
+const stripeScripts = "https://js.stripe.com https://*.js.stripe.com";
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} ${stripeScripts}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "font-src 'self'",
-  "connect-src 'self'",
+  "connect-src 'self' https://api.stripe.com",
+  `frame-src ${stripeScripts} https://hooks.stripe.com`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
