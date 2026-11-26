@@ -13,7 +13,7 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
   (encouraged, never required to buy), reset a forgotten password. Admins of the store are created from
   the command line, never by a route.
 - **Every customer in a sandbox of their own.** A customer sees the shared catalog and only what they
-  wrote: cart, orders and stock reservations (from the next stages on). One customer's checkout can never
+  wrote: cart, orders and stock reservations. One customer's checkout can never
   hold stock that another sees, and a one-click demo visitor (stage 9) is a customer whose sandbox goes
   after a day.
 - **A storefront.** Coffees in every weight and grind, brewing gear and digital courses, on shelves by
@@ -37,6 +37,21 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
   corner of the store, and "once per customer" (kept by a partial unique index). Totals come from one
   pure function, property-tested: the discount is shared out among the lines by largest remainder, in
   exact integers, so refunding one line refunds exactly its share.
+- **Orders that hold what they promise.** Checkout asks for the delivery address (the CEP fills it in, and
+  the state must be the CEP's: shipping is priced by it), the shipping service and the coupon, and places
+  an order that freezes the cart's lines at today's prices. For 30 minutes it holds its stock in the
+  customer's corner of the store and its coupon use, then expires and gives both back (a sweep inside the
+  API; the order already reads as expired before it runs). Everything happens in one transaction under
+  the cart's lock, with locks always taken in the same order (cart, stock by variant, coupon): a double
+  click gets the same order, changing shipping, coupon, address or cart replaces the waiting order, and
+  the last units or a coupon's last place go to exactly one of the customers racing for them. The
+  customer can cancel a waiting order, and follows each one on its own page: status, a countdown, a
+  timeline, and a receipt by email.
+- **Order invariants in the database.** Totals add up (checked at commit by deferred constraint
+  triggers: the lines' sum, the discount's shares, shipping exactly when something ships); what was
+  bought and for how much can't change after the fact; status moves only along allowed transitions (a
+  paid order never goes back to waiting); an order, its lines and its stock movements stay in its
+  customer's sandbox; its timeline is append-only.
 - **Email people can control.** Receipts and account email always go; order progress updates carry a
   signed unsubscribe link and the one-click header email clients turn into a button.
 
@@ -59,7 +74,7 @@ An npm-workspaces monorepo, built on the infrastructure of [Lance](https://githu
 
 The plan ahead, by design: a payment gateway port (Stripe and a deterministic fake), one reconciliation
 function that always asks Stripe for the current state (webhooks only trigger it), fulfillment kept apart
-from money, and order totals and refund caps enforced by the database, like stock already is.
+from money, and refund caps enforced by the database, like order totals and stock already are.
 
 ## Running locally
 
@@ -88,7 +103,7 @@ npm run dev                        # API on :8050, web on http://localhost:3040
 2. ✅ Catalog and stock (variants, stock levels per sandbox, storefront, search)
 3. ✅ Cart (visitor and customer carts, server prices, merge on sign-in)
 4. ✅ Shipping by CEP, coupons and totals
-5. Orders with stock reservation
+5. ✅ Orders with stock reservation
 6. Stripe payments (Payment Element, webhooks, reconciliation, digital downloads)
 7. Admin panel (orders and fulfillment, products and stock, coupons)
 8. Refunds and disputes
