@@ -54,6 +54,8 @@ export function useSetMe() {
   return (me: Me | null) => {
     client.setQueryData(ME_KEY, me);
     if (me === null) client.removeQueries({ predicate: (query) => query.queryKey[0] !== ME_KEY[0] });
+    // Signing in moves a visitor's cart into the account's; signing out leaves a visitor's (empty) one.
+    void client.invalidateQueries({ queryKey: ["cart"] });
   };
 }
 

@@ -2,7 +2,8 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps } from "react";
 
 const styles = {
-  primary: "bg-brand-600 text-white hover:bg-brand-700 focus-visible:outline-brand-600 disabled:bg-brand-400",
+  primary:
+    "bg-brand-600 text-white hover:bg-brand-700 focus-visible:outline-brand-600 disabled:bg-brand-400 [&:disabled:not([aria-busy])]:bg-stone-300 [&:disabled:not([aria-busy])]:text-stone-600",
   secondary:
     "border border-stone-300 bg-white text-stone-800 hover:bg-stone-100 focus-visible:outline-stone-500 disabled:text-stone-400",
   ghost: "text-stone-700 hover:bg-stone-200/60 focus-visible:outline-stone-500",

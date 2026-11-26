@@ -1,7 +1,11 @@
 "use client";
 
-import { LOW_STOCK, formatBRL, type ProductDetail, type VariantView } from "@torra/shared";
+import { LOW_STOCK, MAX_PER_LINE, formatBRL, type ProductDetail, type VariantView } from "@torra/shared";
+import Link from "next/link";
 import { useId, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ApiFailure } from "@/lib/api";
+import { useCartChange } from "@/lib/cart";
 
 /**
  * Choosing a variant, one option at a time (weight, then grind…). A value that makes no existing variant
@@ -41,7 +45,7 @@ export function VariantPicker({ product }: { product: ProductDetail }) {
         />
       ))}
       <Availability variant={variant} digital={product.kind === "digital"} />
-      <p className="text-sm text-stone-500">O carrinho chega na próxima versão da loja.</p>
+      <AddToCart key={variant.id} variant={variant} digital={product.kind === "digital"} />
     </div>
   );
 }
@@ -130,4 +134,65 @@ function matching(variants: VariantView[], values: string[]): VariantView | unde
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+/** How many, and into the cart. A digital product is one licence: no quantity to choose. */
+function AddToCart({ variant, digital }: { variant: VariantView; digital: boolean }) {
+  const change = useCartChange();
+  const [quantity, setQuantity] = useState(1);
+  const [done, setDone] = useState(false);
+  const most = digital ? 1 : Math.min(MAX_PER_LINE, variant.available ?? 0);
+  const quantityId = useId();
+  if (most === 0) return null;
+
+  async function add() {
+    setDone(false);
+    await change.mutateAsync({ kind: "add", variantId: variant.id, quantity }).catch(() => undefined);
+    setDone(true);
+  }
+
+  const failure =
+    change.error instanceof ApiFailure
+      ? change.error.message
+      : change.error
+        ? "Não foi possível adicionar."
+        : null;
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-end gap-3">
+        {digital ? null : (
+          <label htmlFor={quantityId} className="grid gap-1.5 text-sm font-medium text-stone-800">
+            Quantidade
+            <select
+              id={quantityId}
+              value={quantity}
+              onChange={(event) => setQuantity(Number(event.target.value))}
+              className="rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm shadow-xs focus:border-brand-500 focus:ring-3 focus:ring-brand-500/20 focus:outline-none"
+            >
+              {Array.from({ length: most }, (_, n) => n + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <Button onClick={add} busy={change.isPending} className="px-6 py-2.5">
+          Adicionar ao carrinho
+        </Button>
+      </div>
+      <p role="status" className="text-sm">
+        {done && !failure ? (
+          <span className="font-medium text-emerald-800">
+            Adicionado.{" "}
+            <Link href="/carrinho" className="text-brand-700 underline-offset-2 hover:underline">
+              Ver carrinho
+            </Link>
+          </span>
+        ) : failure ? (
+          <span className="text-red-700">{failure}</span>
+        ) : null}
+      </p>
+    </div>
+  );
 }
