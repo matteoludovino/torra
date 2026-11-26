@@ -36,6 +36,9 @@ export default defineConfig({
         // as they would to real people.
         TRUST_PROXY: "true",
         LOG_LEVEL: "warn",
+        // No outside services in end-to-end runs: the CEP directory "doesn't answer", and the checkout's
+        // fallback (picking the state) is what gets exercised.
+        VIACEP_URL: "http://127.0.0.1:9/ws",
       },
       reuseExistingServer: false,
       timeout: 60_000,
