@@ -52,6 +52,21 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
   bought and for how much can't change after the fact; status moves only along allowed transitions (a
   paid order never goes back to waiting); an order, its lines and its stock movements stay in its
   customer's sandbox; its timeline is append-only.
+- **Card payments through Stripe, in test mode.** The order page carries Stripe's Payment Element (3-D
+  Secure in place, Stripe's own decline messages, the test cards listed beside it). Each order has one
+  PaymentIntent, created once by an idempotency key; a declined card leaves it waiting for another. One
+  function decides an order's payment state, and it always asks Stripe for the PaymentIntent as it is now:
+  webhooks (signature-checked, kept once, handled through the outbox), the page's return from the card form
+  and a sweep two minutes later only make it run, so a lost, repeated, out-of-order or forged event changes
+  nothing. A PaymentIntent that doesn't match its order (amount, currency, order, deployment) is never
+  taken as paid. Stripe is never called inside a database transaction.
+- **No order closes while it can still be paid.** Expiring, cancelling or replacing an order cancels its
+  PaymentIntent first; if Stripe says it was paid meanwhile, the order is paid instead, and a payment still
+  processing keeps it open (the page follows it and settles on its own). A payment that arrives anyway for
+  a closed order is refunded in full, once. An order that costs nothing is settled without Stripe.
+- **Paid means sold.** The units the order held stay sold, its lines leave the cart, a receipt goes out,
+  and digital items can be downloaded at once: a PDF made on request and licensed to the buyer by name,
+  behind a signed link that works for an hour and needs no session, with each download counted.
 - **Email people can control.** Receipts and account email always go; order progress updates carry a
   signed unsubscribe link and the one-click header email clients turn into a button.
 
@@ -72,9 +87,17 @@ An npm-workspaces monorepo, built on the infrastructure of [Lance](https://githu
   the API (no external queue for a free-plan server that sleeps).
 - **An append-only audit log** of what admins do: the database refuses to change or delete it.
 
-The plan ahead, by design: a payment gateway port (Stripe and a deterministic fake), one reconciliation
-function that always asks Stripe for the current state (webhooks only trigger it), fulfillment kept apart
-from money, and refund caps enforced by the database, like order totals and stock already are.
+- **Payments behind a port:** `PaymentGateway`, with a Stripe adapter (the official SDK, API version
+  `2026-10-28.endive` pinned, requests spaced to stay under test mode's rate limit) and a deterministic fake
+  that keeps PaymentIntents and refunds the way Stripe does, idempotency keys included. Without Stripe keys
+  (development, tests, end-to-end runs) the fake stands in, and the order page shows a simulated card form;
+  in production Stripe is required, and live keys are refused everywhere.
+- **Money rules in the database too:** a paid order that cost something has a PaymentIntent with no
+  mismatch; its PaymentIntent can't change once it leaves "waiting for payment"; downloads exist only for a
+  paid order's digital items.
+
+The plan ahead, by design: fulfillment kept apart from money, and refund caps enforced by the database,
+like order totals and stock already are.
 
 ## Running locally
 
@@ -88,6 +111,12 @@ npm run db:migrate -w @torra/api
 npm run db:seed -w @torra/api      # the catalog (12 products, 53 variants, their stock) and 2 coupons
 npm run dev                        # API on :8050, web on http://localhost:3040
 ```
+
+Payments run on the fake gateway until Stripe test keys are set in `apps/api/.env` (see `.env.example`):
+a Stripe sandbox's `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY`, and for webhooks the secret printed
+by `stripe listen --forward-to localhost:8050/api/payments/webhook` (without it, payments still settle:
+the page and a sweep ask Stripe). `npm test` also checks the Stripe adapter against Stripe itself when
+`STRIPE_SECRET_KEY` is exported (CI does, on main).
 
 | Script                                                    | Does                                                |
 | --------------------------------------------------------- | --------------------------------------------------- |
@@ -104,7 +133,7 @@ npm run dev                        # API on :8050, web on http://localhost:3040
 3. ✅ Cart (visitor and customer carts, server prices, merge on sign-in)
 4. ✅ Shipping by CEP, coupons and totals
 5. ✅ Orders with stock reservation
-6. Stripe payments (Payment Element, webhooks, reconciliation, digital downloads)
+6. ✅ Stripe payments (Payment Element, webhooks, reconciliation, digital downloads)
 7. Admin panel (orders and fulfillment, products and stock, coupons)
 8. Refunds and disputes
 9. One-click demo, deploy, README with GIF, ADRs
