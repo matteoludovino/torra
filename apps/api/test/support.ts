@@ -30,7 +30,7 @@ export async function resetDb(db: PrismaService): Promise<void> {
     db.$executeRawUnsafe(`SELECT set_config('torra.purge', 'on', true)`),
     db.$executeRawUnsafe(
       `TRUNCATE users, sandboxes, sessions, email_tokens, sent_emails, outbox_events, audit_entries,
-        products, variants, stock_levels, stock_movements RESTART IDENTITY CASCADE`,
+        products, variants, stock_levels, stock_movements, carts, cart_items RESTART IDENTITY CASCADE`,
     ),
   ]);
 }
@@ -43,23 +43,33 @@ let addresses = 0;
  */
 export class Browser {
   readonly ip = `10.0.${Math.floor(++addresses / 250)}.${addresses % 250}`;
-  cookie: string | null = null;
+  /** Every cookie the API set (the session's, the visitor cart's), sent back as a browser would. */
+  readonly cookies = new Map<string, string>();
 
   constructor(private readonly app: App) {}
 
+  /** The session cookie, for tests that swap it by hand. */
+  get cookie(): string | null {
+    return this.cookies.get("torra_session") ?? null;
+  }
+  set cookie(value: string | null) {
+    if (value) this.cookies.set("torra_session", value);
+    else this.cookies.delete("torra_session");
+  }
+
   async request(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", url: string, payload?: object) {
+    const jar = [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
     const response = await this.app.inject({
       method,
       url,
       remoteAddress: this.ip,
-      headers: {
-        origin: ORIGIN,
-        ...(this.cookie ? { cookie: `torra_session=${this.cookie}` } : {}),
-      },
+      headers: { origin: ORIGIN, ...(jar ? { cookie: jar } : {}) },
       ...(payload ? { payload } : {}),
     });
-    const set = response.cookies.find((cookie) => cookie.name === "torra_session");
-    if (set) this.cookie = set.value || null;
+    for (const set of response.cookies) {
+      if (set.value) this.cookies.set(set.name, set.value);
+      else this.cookies.delete(set.name);
+    }
     return response;
   }
 
@@ -67,6 +77,7 @@ export class Browser {
   post = (url: string, payload?: object) => this.request("POST", url, payload ?? {});
   put = (url: string, payload: object) => this.request("PUT", url, payload);
   patch = (url: string, payload: object) => this.request("PATCH", url, payload);
+  delete = (url: string) => this.request("DELETE", url);
 }
 
 export type App = Awaited<ReturnType<typeof testApp>>;
