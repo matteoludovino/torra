@@ -10,10 +10,12 @@ export function seedId(key: string): string {
 }
 
 /**
- * Writes the shared catalog. Safe to run again: products and variants are updated in place, and stock is
+ * Writes the shared catalog and the store's coupons. Safe to run again: products and variants are updated in place, and stock is
  * seeded only the first time (after that, stock moves only through orders and admins).
  */
-export async function seedCatalog(db: PrismaClient): Promise<{ products: number; variants: number }> {
+export async function seedCatalog(
+  db: PrismaClient,
+): Promise<{ products: number; variants: number; coupons: number }> {
   let variants = 0;
   for (const [position, product] of SEED_CATALOG.entries()) {
     const productId = seedId(`product:${product.slug}`);
@@ -52,5 +54,15 @@ export async function seedCatalog(db: PrismaClient): Promise<{ products: number;
       variants += 1;
     }
   }
-  return { products: SEED_CATALOG.length, variants };
+  for (const coupon of SEED_COUPONS) {
+    const id = seedId(`coupon:${coupon.code}`);
+    await db.coupon.upsert({ where: { id }, create: { id, ...coupon }, update: coupon });
+  }
+  return { products: SEED_CATALOG.length, variants, coupons: SEED_COUPONS.length };
 }
+
+/** The store's own coupons, for every customer. */
+export const SEED_COUPONS = [
+  { code: "BEMVINDO10", kind: "percent" as const, value: 10, oncePerCustomer: true },
+  { code: "TORRA20", kind: "fixed" as const, value: 2000, minSubtotalCents: 15_000, maxRedemptions: 100 },
+];

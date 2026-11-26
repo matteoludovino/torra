@@ -13,10 +13,10 @@ datasource db {
 /// signed-up customer's has no end): they see the shared catalog plus what they themselves wrote (cart,
 /// orders, stock reservations), never anyone else's. Deleting a sandbox removes all of that.
 model Sandbox {
-  id             String          @id @db.Uuid
-  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  id             String             @id @db.Uuid
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
   /// Null: kept (a signed-up customer). Set: removed after this moment (a demo).
-  expiresAt      DateTime?       @db.Timestamptz(3)
+  expiresAt      DateTime?          @db.Timestamptz(3)
   outboxEvents   OutboxEvent[]
   users          User[]
   sentEmails     SentEmail[]
@@ -24,6 +24,8 @@ model Sandbox {
   stockLevels    StockLevel[]
   stockMovements StockMovement[]
   carts          Cart[]
+  coupons        Coupon[]
+  redemptions    CouponRedemption[]
 
   @@index([expiresAt])
   @@map("sandboxes")
@@ -58,24 +60,25 @@ enum Role {
 /// An account. Customers always live in a sandbox; the store's own admins (who run the shared catalog)
 /// have none.
 model User {
-  id              String       @id @db.Uuid
+  id              String             @id @db.Uuid
   /// Trimmed and lower-cased. Never sent to anyone but its owner (and the store's admins).
-  email           String       @unique @db.VarChar(254)
-  name            String       @db.VarChar(60)
+  email           String             @unique @db.VarChar(254)
+  name            String             @db.VarChar(60)
   /// Argon2id. Null: can't sign in with a password (demo personas).
   passwordHash    String?
-  role            Role         @default(customer)
-  emailVerifiedAt DateTime?    @db.Timestamptz(3)
-  sandboxId       String?      @db.Uuid
-  sandbox         Sandbox?     @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  role            Role               @default(customer)
+  emailVerifiedAt DateTime?          @db.Timestamptz(3)
+  sandboxId       String?            @db.Uuid
+  sandbox         Sandbox?           @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
   /// Email categories this person turned off (account and order receipts can't be).
-  emailOptOuts    String[]     @default([])
+  emailOptOuts    String[]           @default([])
   /// Set by an admin: can't sign in.
-  suspendedAt     DateTime?    @db.Timestamptz(3)
-  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  suspendedAt     DateTime?          @db.Timestamptz(3)
+  createdAt       DateTime           @default(now()) @db.Timestamptz(3)
   sessions        Session[]
   emailTokens     EmailToken[]
   cart            Cart?
+  redemptions     CouponRedemption[]
 
   @@index([sandboxId])
   @@map("users")
@@ -299,4 +302,59 @@ model CartItem {
 
   @@id([cartId, variantId])
   @@map("cart_items")
+}
+
+enum CouponKind {
+  percent
+  fixed
+}
+
+/// A discount code. The shared catalog's (no sandbox) work for every customer, their total limit counted
+/// per customer's corner of the store (one customer can't use up another's); a demo's admin may create
+/// codes for their own sandbox, which never reuse a shared code.
+model Coupon {
+  id               String             @id @db.Uuid
+  sandboxId        String?            @db.Uuid
+  sandbox          Sandbox?           @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  /// Upper case, no spaces.
+  code             String             @db.VarChar(30)
+  kind             CouponKind
+  /// A percentage (1-100) or an amount in centavos.
+  value            Int
+  minSubtotalCents Int                @default(0)
+  startsAt         DateTime?          @db.Timestamptz(3)
+  endsAt           DateTime?          @db.Timestamptz(3)
+  /// Uses allowed per corner of the store (null: unlimited).
+  maxRedemptions   Int?
+  oncePerCustomer  Boolean            @default(false)
+  active           Boolean            @default(true)
+  createdAt        DateTime           @default(now()) @db.Timestamptz(3)
+  redemptions      CouponRedemption[]
+
+  @@unique([code, sandboxId])
+  @@map("coupons")
+}
+
+/// A coupon held by an order (orders arrive in stage 5): counted against its limits until released
+/// (the order expired or was cancelled before payment).
+model CouponRedemption {
+  id         String    @id @db.Uuid
+  couponId   String    @db.Uuid
+  coupon     Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sandboxId  String    @db.Uuid
+  sandbox    Sandbox   @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  /// One coupon per order.
+  orderId    String    @unique @db.Uuid
+  /// The coupon's "once per customer", copied in: the partial unique index below needs it in its row.
+  exclusive  Boolean
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  releasedAt DateTime? @db.Timestamptz(3)
+
+  /// Partial in the migration (WHERE exclusive AND releasedAt IS NULL): a "once per customer" coupon has
+  /// one live use per customer (checked under the coupon's lock too; the index is the backstop).
+  @@unique([couponId, userId])
+  @@index([couponId, sandboxId])
+  @@map("coupon_redemptions")
 }
