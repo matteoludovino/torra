@@ -32,6 +32,8 @@ export interface CartLine {
   /** The price the customer saw when adding it (differs only with a price_changed issue). */
   seenPriceCents: number;
   lineTotalCents: number;
+  /** Per unit, packaging included; null for digital. Shipping is priced on the parcel's total. */
+  weightGrams: number | null;
   /** Units available in the customer's corner of the store; null for digital. */
   available: number | null;
   /** The most a line can be set to right now. */
