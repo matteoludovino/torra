@@ -23,6 +23,7 @@ model Sandbox {
   products       Product[]
   stockLevels    StockLevel[]
   stockMovements StockMovement[]
+  carts          Cart[]
 
   @@index([expiresAt])
   @@map("sandboxes")
@@ -74,6 +75,7 @@ model User {
   createdAt       DateTime     @default(now()) @db.Timestamptz(3)
   sessions        Session[]
   emailTokens     EmailToken[]
+  cart            Cart?
 
   @@index([sandboxId])
   @@map("users")
@@ -204,6 +206,7 @@ model Variant {
   createdAt      DateTime        @default(now()) @db.Timestamptz(3)
   stockLevels    StockLevel[]
   stockMovements StockMovement[]
+  cartItems      CartItem[]
 
   @@unique([sku, sandboxId])
   @@index([productId, position])
@@ -262,4 +265,38 @@ model StockMovement {
   @@unique([orderId, variantId, kind])
   @@index([variantId, sandboxId])
   @@map("stock_movements")
+}
+
+/// A shopping cart: a signed-in customer's (one, in their sandbox) or a visitor's (behind a cookie that
+/// holds a random token; only its SHA-256 is stored). Signing in moves a visitor's cart into the account's.
+/// Holds no stock: units are reserved when an order is placed.
+model Cart {
+  id        String     @id @db.Uuid
+  userId    String?    @unique @db.Uuid
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash Bytes?     @unique
+  sandboxId String?    @db.Uuid
+  sandbox   Sandbox?   @relation(fields: [sandboxId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now()) @db.Timestamptz(3)
+  /// A visitor's cart left alone for 30 days is removed.
+  updatedAt DateTime   @db.Timestamptz(3)
+  items     CartItem[]
+
+  @@index([updatedAt])
+  @@map("carts")
+}
+
+model CartItem {
+  cartId         String   @db.Uuid
+  cart           Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variantId      String   @db.Uuid
+  variant        Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity       Int
+  /// The price when it was added (or last acknowledged): only to say "the price changed". What is
+  /// charged is always the variant's current price.
+  seenPriceCents Int
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([cartId, variantId])
+  @@map("cart_items")
 }

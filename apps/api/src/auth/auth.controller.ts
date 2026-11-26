@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, Post, Req, Res } from "@nestjs/common";
 import { emailInput, loginInput, resetInput, signupInput, verifyInput, type Me } from "@torra/shared";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { z } from "zod";
+import { Carts } from "../cart/carts.service.ts";
 import { ZodPipe } from "../common/zod.pipe.ts";
 import { Accounts } from "./accounts.service.ts";
 import { CurrentUser, Public, type AuthUser } from "./auth-user.ts";
@@ -17,7 +18,15 @@ export class AuthController {
   constructor(
     private readonly accounts: Accounts,
     private readonly sessions: Sessions,
+    private readonly carts: Carts,
   ) {}
+
+  /** Whoever just signed in takes along the cart they filled as a visitor. */
+  private async adopting(request: FastifyRequest, reply: FastifyReply, signedIn: Promise<Me>): Promise<Me> {
+    const me = await signedIn;
+    await this.carts.adopt(request, reply, me.id);
+    return me;
+  }
 
   @Public()
   @Post("signup")
@@ -26,7 +35,7 @@ export class AuthController {
     @Req() request: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<Me> {
-    return this.accounts.signup(body, request.ip, reply);
+    return this.adopting(request, reply, this.accounts.signup(body, request.ip, reply));
   }
 
   @Public()
@@ -37,7 +46,7 @@ export class AuthController {
     @Req() request: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<Me> {
-    return this.accounts.login(body, request.ip, reply);
+    return this.adopting(request, reply, this.accounts.login(body, request.ip, reply));
   }
 
   @Post("logout")
@@ -54,7 +63,7 @@ export class AuthController {
     @Req() request: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<Me> {
-    return this.accounts.verify(body.token, request.ip, reply);
+    return this.adopting(request, reply, this.accounts.verify(body.token, request.ip, reply));
   }
 
   @Public()
@@ -87,6 +96,6 @@ export class AuthController {
     @Req() request: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<Me> {
-    return this.accounts.resetPassword(body, request.ip, reply);
+    return this.adopting(request, reply, this.accounts.resetPassword(body, request.ip, reply));
   }
 }
