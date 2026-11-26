@@ -29,6 +29,14 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
   within what's left in the customer's corner of the store, ten per line, one of a digital product, and
   the cart flags what needs attention (sold out, fewer left, new price) before checkout. Accounts without
   a sandbox (the store's admins) don't shop: they'd be buying the shared stock.
+- **Shipping, coupons and totals, priced on the server.** A CEP's state comes from the ViaCEP directory
+  (cached, with a short timeout; if it doesn't answer, the customer picks the state). Shipping is a table
+  by region and started kilo, economy or express, with business-day estimates, and economy is free from
+  R$ 300 in products after the discount. Coupons take a percentage (rounded down) or an amount off the
+  products, never off shipping, with dates, a minimum, a total limit counted in each customer's own
+  corner of the store, and "once per customer" (kept by a partial unique index). Totals come from one
+  pure function, property-tested: the discount is shared out among the lines by largest remainder, in
+  exact integers, so refunding one line refunds exactly its share.
 - **Email people can control.** Receipts and account email always go; order progress updates carry a
   signed unsubscribe link and the one-click header email clients turn into a button.
 
@@ -62,7 +70,7 @@ npm install
 npm run db:up                      # PostgreSQL on :5440, Mailpit (email catcher) on :8026
 cp .env.example apps/api/.env
 npm run db:migrate -w @torra/api
-npm run db:seed -w @torra/api      # the catalog: 12 products, 53 variants and their stock
+npm run db:seed -w @torra/api      # the catalog (12 products, 53 variants, their stock) and 2 coupons
 npm run dev                        # API on :8050, web on http://localhost:3040
 ```
 
@@ -79,7 +87,7 @@ npm run dev                        # API on :8050, web on http://localhost:3040
 1. ✅ Base: monorepo, accounts with a sandbox per customer, outbox, scheduler, audit log, CI
 2. ✅ Catalog and stock (variants, stock levels per sandbox, storefront, search)
 3. ✅ Cart (visitor and customer carts, server prices, merge on sign-in)
-4. Shipping by CEP, coupons and totals
+4. ✅ Shipping by CEP, coupons and totals
 5. Orders with stock reservation
 6. Stripe payments (Payment Element, webhooks, reconciliation, digital downloads)
 7. Admin panel (orders and fulfillment, products and stock, coupons)
