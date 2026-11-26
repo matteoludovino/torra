@@ -417,8 +417,14 @@ model Order {
   uf                  String?           @db.Char(2)
   /// Until when stock and coupon are held for payment.
   expiresAt           DateTime          @db.Timestamptz(3)
-  /// Stripe (stage 6).
+  /// Stripe: the order's PaymentIntent (one at a time; a new attempt only if Stripe cancelled the last).
   paymentIntentId     String?           @unique @db.VarChar(80)
+  /// Which PaymentIntent this is for the order (part of its idempotency key).
+  paymentAttempt      Int               @default(0)
+  /// When Stripe was last asked about it (a sweep asks again after a while).
+  paymentCheckedAt    DateTime?         @db.Timestamptz(3)
+  /// Set when Stripe's PaymentIntent doesn't match the order (amount, currency, order): never paid, then.
+  paymentProblem      String?           @db.VarChar(200)
   latestChargeId      String?           @db.VarChar(80)
   amountPaidCents     Int               @default(0)
   amountRefundedCents Int               @default(0)
@@ -439,6 +445,7 @@ model Order {
   @@unique([cartId])
   @@index([userId, createdAt(sort: Desc)])
   @@index([status, expiresAt])
+  @@index([status, paymentCheckedAt])
   @@map("orders")
 }
 
@@ -462,6 +469,8 @@ model OrderItem {
   weightGrams    Int?
   position       Int
 
+  downloads      Download[]
+
   @@unique([orderId, variantId])
   @@map("order_items")
 }
@@ -479,4 +488,27 @@ model OrderEvent {
 
   @@index([orderId, createdAt])
   @@map("order_events")
+}
+
+/// Stripe events received by the webhook, once each (Stripe may send one more than once). Processing goes
+/// through the outbox, which retries; what an event says is never trusted: the order asks Stripe.
+model PaymentEvent {
+  id         String   @id @db.VarChar(255)
+  type       String   @db.VarChar(80)
+  /// The PaymentIntent, charge, refund or dispute it's about.
+  objectId   String   @db.VarChar(255)
+  receivedAt DateTime @db.Timestamptz(3)
+
+  @@map("payment_events")
+}
+
+/// A download of a purchased digital item (counted; the link itself is signed and short-lived).
+model Download {
+  id          String    @id @db.Uuid
+  orderItemId String    @db.Uuid
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @db.Timestamptz(3)
+
+  @@index([orderItemId])
+  @@map("downloads")
 }
