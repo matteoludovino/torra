@@ -9,7 +9,8 @@ import { STRIPE_API_VERSION, StripeGateway } from "../src/payments/stripe.gatewa
  * gateway imitates, checked for real. Needs STRIPE_SECRET_KEY (sk_test_…); without it, skipped with a
  * note. CI runs it on main, where the secret is available.
  */
-const key = process.env["STRIPE_SECRET_KEY"];
+// CI sets it to an empty string when the secret isn't available.
+const key = process.env["STRIPE_SECRET_KEY"] || undefined;
 if (!key) console.warn("Stripe contract tests skipped: STRIPE_SECRET_KEY (test mode) is not set.");
 if (key && !/^(sk|rk)_test_/.test(key)) throw new Error("STRIPE_SECRET_KEY must be a test-mode key");
 
