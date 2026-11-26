@@ -24,3 +24,15 @@ services:
         sync: false # optional: without it, emails are kept in the database (sent_emails)
       - key: SIGNING_SECRET
         generateValue: true # signs unsubscribe links; Render makes a random one, never in the repository
+      # Stripe in test mode (live keys are refused by the API), from the production Stripe sandbox:
+      # Developers > API keys, and the webhook endpoint https://<this service>/api/payments/webhook
+      # (API version 2026-10-28.endive; events payment_intent.*, charge.refunded, refund.*,
+      # charge.dispute.*), whose signing secret goes in STRIPE_WEBHOOK_SECRET.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: PAYMENTS_ENV
+        value: production # written on every Stripe object, to tell deployments apart

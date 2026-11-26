@@ -38,7 +38,12 @@ jobs:
       # Every schema change ships with its migration.
       - run: npx prisma migrate deploy && npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
         working-directory: apps/api
+      # On main, the Stripe adapter is also checked against Stripe's test mode (the development/CI
+      # sandbox's key); without the secret (pull requests, forks) those tests skip with a note. The other
+      # tests always use the fake gateway.
       - run: npm test
+        env:
+          STRIPE_SECRET_KEY: ${{ github.event_name == 'push' && secrets.STRIPE_SECRET_KEY || '' }}
       - run: npm run build
 
   api-image:
