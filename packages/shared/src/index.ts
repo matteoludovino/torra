@@ -3,6 +3,7 @@ import "./zod-config";
 
 export * from "./accounts";
 export * from "./admin";
+export * from "./cart";
 export * from "./catalog";
 export * from "./emails";
 export * from "./errors";
