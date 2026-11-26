@@ -3,6 +3,7 @@
 import { formatBRL, type CartLine } from "@torra/shared";
 import Link from "next/link";
 import { ProductArt } from "@/components/catalog/product-art";
+import { QuotePanel } from "@/components/checkout/quote-panel";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { ApiFailure } from "@/lib/api";
@@ -55,13 +56,7 @@ export function CartScreen() {
             </ul>
           </section>
           <aside className="grid gap-3 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm md:sticky md:top-6">
-            <p className="flex items-baseline justify-between">
-              <span className="text-stone-600">
-                Subtotal ({cart.count} {cart.count === 1 ? "item" : "itens"})
-              </span>
-              <span className="text-lg font-semibold">{formatBRL(cart.subtotalCents)}</span>
-            </p>
-            <p className="text-sm text-stone-500">Frete e cupom no próximo passo.</p>
+            <QuotePanel cart={cart} />
             <Button disabled>Continuar para o pagamento</Button>
             <p className="text-xs text-stone-500">
               {cart.ready
