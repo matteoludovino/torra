@@ -324,6 +324,7 @@ export class Carts implements OnModuleInit {
         unitPriceCents: variant.priceCents,
         seenPriceCents: item.seenPriceCents,
         lineTotalCents: variant.priceCents * item.quantity,
+        weightGrams: variant.weightGrams,
         available: left,
         maxQuantity: variant.product.kind === "digital" ? 1 : Math.min(MAX_PER_LINE, left ?? 0),
         issue: issueOf(item, left),

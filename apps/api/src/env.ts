@@ -31,6 +31,8 @@ const schema = z
     /** Where email goes (smtp://localhost:1026 is Mailpit). Unset: emails are only kept in the database. */
     SMTP_URL: z.url().optional(),
     MAIL_FROM: z.string().default("Torra <nao-responda@torra.local>"),
+    /** The postal directory that turns a CEP into an address (e2e points it nowhere, to test the fallback). */
+    VIACEP_URL: z.url().default("https://viacep.com.br/ws"),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "log", "debug", "verbose"]).default("log"),
     /** Demo sandboxes alive at once, across all visitors (each lasts a day). */
     DEMO_MAX_SANDBOXES: z.coerce.number().int().positive().default(200),
