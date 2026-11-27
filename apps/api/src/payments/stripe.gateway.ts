@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import {
+  IntentNotFound,
   PaymentGateway,
   UnexpectedIntentState,
   type CreateIntent,
@@ -52,7 +53,14 @@ export class StripeGateway extends PaymentGateway {
 
   async retrieveIntent(id: string): Promise<Intent> {
     await this.slot();
-    return toIntent(await this.stripe.paymentIntents.retrieve(id));
+    try {
+      return toIntent(await this.stripe.paymentIntents.retrieve(id));
+    } catch (error) {
+      if (error instanceof Stripe.errors.StripeError && error.code === "resource_missing") {
+        throw new IntentNotFound(id);
+      }
+      throw error;
+    }
   }
 
   async cancelIntent(id: string): Promise<Intent> {
@@ -60,6 +68,9 @@ export class StripeGateway extends PaymentGateway {
     try {
       return toIntent(await this.stripe.paymentIntents.cancel(id));
     } catch (error) {
+      if (error instanceof Stripe.errors.StripeError && error.code === "resource_missing") {
+        throw new IntentNotFound(id);
+      }
       if (!(error instanceof Stripe.errors.StripeError) || error.code !== "payment_intent_unexpected_state") {
         throw error;
       }

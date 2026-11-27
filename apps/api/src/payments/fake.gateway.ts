@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  IntentNotFound,
   PaymentGateway,
   UnexpectedIntentState,
   type CreateIntent,
@@ -33,7 +34,7 @@ export class FakeGateway extends PaymentGateway {
   /** Requests made, by kind (tests check that nothing reaches the gateway inside transactions, etc.). */
   readonly calls = { create: 0, retrieve: 0, cancel: 0, refund: 0 };
 
-  createIntent(input: CreateIntent): Promise<Intent> {
+  async createIntent(input: CreateIntent): Promise<Intent> {
     this.calls.create += 1;
     const known = this.byKey.get(input.idempotencyKey);
     if (known) return Promise.resolve({ ...this.intents.get(known)! });
@@ -54,12 +55,12 @@ export class FakeGateway extends PaymentGateway {
     return Promise.resolve({ ...intent });
   }
 
-  retrieveIntent(id: string): Promise<Intent> {
+  async retrieveIntent(id: string): Promise<Intent> {
     this.calls.retrieve += 1;
     return Promise.resolve({ ...this.intent(id) });
   }
 
-  cancelIntent(id: string): Promise<Intent> {
+  async cancelIntent(id: string): Promise<Intent> {
     this.calls.cancel += 1;
     const intent = this.intent(id);
     if (intent.status === "succeeded" || intent.status === "processing") {
@@ -69,7 +70,7 @@ export class FakeGateway extends PaymentGateway {
     return Promise.resolve({ ...intent });
   }
 
-  createRefund(input: CreateRefund): Promise<Refund> {
+  async createRefund(input: CreateRefund): Promise<Refund> {
     this.calls.refund += 1;
     const known = this.refunds.find((refund) => refund.id === this.byKey.get(input.idempotencyKey));
     if (known) return Promise.resolve({ id: known.id, status: known.status, amountCents: known.amountCents });
@@ -118,7 +119,7 @@ export class FakeGateway extends PaymentGateway {
 
   private intent(id: string): Intent {
     const intent = this.intents.get(id);
-    if (!intent) throw new Error(`No such payment_intent: '${id}'`);
+    if (!intent) throw new IntentNotFound(id);
     return intent;
   }
 }

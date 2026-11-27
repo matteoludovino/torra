@@ -58,6 +58,13 @@ export class UnexpectedIntentState extends Error {
   }
 }
 
+/** No such PaymentIntent (Stripe's resource_missing): it can't be paid, or cancelled. */
+export class IntentNotFound extends Error {
+  constructor(readonly id: string) {
+    super(`No such payment_intent: '${id}'`);
+  }
+}
+
 export abstract class PaymentGateway {
   abstract readonly kind: "stripe" | "fake";
   abstract createIntent(input: CreateIntent): Promise<Intent>;

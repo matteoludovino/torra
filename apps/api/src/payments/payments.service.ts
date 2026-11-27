@@ -18,7 +18,7 @@ import { PrismaService } from "../prisma/prisma.service.ts";
 import { Scheduler } from "../scheduler/scheduler.service.ts";
 import { Clock } from "../time/clock.ts";
 import { FakeGateway, type FakeOutcome } from "./fake.gateway.ts";
-import { PaymentGateway, UnexpectedIntentState, type Intent } from "./gateway.ts";
+import { IntentNotFound, PaymentGateway, UnexpectedIntentState, type Intent } from "./gateway.ts";
 
 export const PAYMENT_EVENTS = { received: "payment.event", paid: "order.paid" } as const;
 
@@ -116,6 +116,8 @@ export class Payments implements OnModuleInit {
       await this.gateway.cancelIntent(order.paymentIntentId);
       return "released";
     } catch (error) {
+      // Stripe doesn't know it (the fake gateway restarted, or the keys changed account): nobody can pay it.
+      if (error instanceof IntentNotFound) return "released";
       if (!(error instanceof UnexpectedIntentState)) throw error;
       await this.reconcile(order.id);
       return error.intent.status === "succeeded" ? "paid" : "processing";
@@ -126,8 +128,16 @@ export class Payments implements OnModuleInit {
   async reconcile(orderId: string): Promise<void> {
     const order = await this.db.order.findUnique({ where: { id: orderId } });
     if (!order?.paymentIntentId) return;
-    const intent = await this.gateway.retrieveIntent(order.paymentIntentId);
     const now = this.clock.now();
+    let intent: Intent;
+    try {
+      intent = await this.gateway.retrieveIntent(order.paymentIntentId);
+    } catch (error) {
+      if (!(error instanceof IntentNotFound)) throw error;
+      // Gone from the gateway: it can't be paid. Paying again starts a new one; otherwise the order expires.
+      await this.db.order.update({ where: { id: order.id }, data: { paymentCheckedAt: now } });
+      return;
+    }
     await this.db.order.update({ where: { id: order.id }, data: { paymentCheckedAt: now } });
 
     const problem = this.mismatch(order, intent);
@@ -233,6 +243,8 @@ export class Payments implements OnModuleInit {
         this.logger.warn(
           `checking order ${order.number} failed: ${error instanceof Error ? error.message : error}`,
         );
+        // Asked, without an answer: asked again after the interval, not at once.
+        await this.db.order.update({ where: { id: order.id }, data: { paymentCheckedAt: now } });
       }
     }
     return checked;
@@ -242,8 +254,12 @@ export class Payments implements OnModuleInit {
   private async ensureIntent(order: Order): Promise<Intent> {
     let attempt = order.paymentAttempt;
     if (order.paymentIntentId) {
-      const intent = await this.gateway.retrieveIntent(order.paymentIntentId);
-      if (intent.status !== "canceled") return intent;
+      const intent = await this.gateway.retrieveIntent(order.paymentIntentId).catch((error: unknown) => {
+        if (error instanceof IntentNotFound) return null;
+        throw error;
+      });
+      // Usable: that one. Cancelled by Stripe, or gone from the gateway: a new attempt.
+      if (intent && intent.status !== "canceled") return intent;
       attempt += 1;
     }
     const intent = await this.gateway.createIntent({

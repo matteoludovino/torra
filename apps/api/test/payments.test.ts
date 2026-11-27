@@ -356,6 +356,57 @@ describe("closing an order with a PaymentIntent", () => {
   });
 });
 
+describe("when the gateway fails", () => {
+  it("treats a PaymentIntent it lost as unpayable: the order expires, and paying again starts a new one", async () => {
+    const { ana, order } = await anOrder();
+    await pay(ana.browser, order.id);
+    const first = (await stored(order.id)).paymentIntentId!;
+    gateway.reset(); // the fake gateway restarted, or the keys moved to another Stripe account
+    expect((await ana.browser.post(`/api/orders/${order.id}/payment/sync`)).statusCode).toBe(200);
+    const again = await pay(ana.browser, order.id);
+    expect(again).toMatchObject({ kind: "fake" });
+    expect(await stored(order.id)).toMatchObject({ paymentAttempt: 1 });
+    expect((await stored(order.id)).paymentIntentId).not.toBe(first);
+
+    gateway.reset();
+    clock.advance(30 * 60_000);
+    await scheduler.runOnce();
+    expect((await stored(order.id)).status).toBe("expired");
+  });
+
+  it("doesn't keep asking every second while Stripe is down", async () => {
+    const { ana, order } = await anOrder();
+    await pay(ana.browser, order.id);
+    const down = () => Promise.reject(new Error("connect ETIMEDOUT"));
+    const realRetrieve = gateway.retrieveIntent.bind(gateway);
+    const realCancel = gateway.cancelIntent.bind(gateway);
+    let asked = 0;
+    gateway.retrieveIntent = () => (asked++, down());
+    gateway.cancelIntent = () => (asked++, down());
+    try {
+      // The payment check: one try, then the interval.
+      clock.advance(2 * 60_000);
+      await scheduler.runOnce();
+      await scheduler.runOnce();
+      expect(asked).toBe(1);
+      // The expiry: one try, then the interval.
+      clock.advance(30 * 60_000);
+      await scheduler.runOnce();
+      await scheduler.runOnce();
+      expect(asked).toBe(2);
+      clock.advance(2 * 60_000);
+      await scheduler.runOnce();
+      expect(asked).toBe(3);
+    } finally {
+      gateway.retrieveIntent = realRetrieve;
+      gateway.cancelIntent = realCancel;
+    }
+    clock.advance(2 * 60_000);
+    await scheduler.runOnce();
+    expect((await stored(order.id)).status).toBe("expired");
+  });
+});
+
 describe("downloads", () => {
   it("are a paid order's digital items, by short-lived signed links, counted", async () => {
     const { ana, order } = await anOrder();

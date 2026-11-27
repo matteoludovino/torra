@@ -349,6 +349,12 @@ export class Orders implements OnModuleInit {
           this.logger.error(
             `expiring order ${order.number} failed: ${error instanceof Error ? error.message : error}`,
           );
+          // Tried after its expiry: the next try waits the payment check's interval (Stripe down, say,
+          // mustn't keep the scheduler going round every second).
+          await this.db.order.updateMany({
+            where: { id: order.id, status: "pending_payment" },
+            data: { paymentCheckedAt: this.clock.now() },
+          });
         }
       }
     }
