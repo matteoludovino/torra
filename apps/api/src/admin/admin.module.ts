@@ -13,5 +13,6 @@ import { AdminController } from "./admin.controller.ts";
   imports: [CatalogModule, OrdersModule, PaymentsModule],
   controllers: [AdminController],
   providers: [AdminOrders, AdminCatalog, AdminCoupons, AdminInsights],
+  exports: [AdminOrders],
 })
 export class AdminModule {}

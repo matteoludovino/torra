@@ -391,7 +391,7 @@ export class Orders implements OnModuleInit {
     const orders = await this.db.order.findMany({
       where: { userId: user.id },
       include: { _count: { select: { items: true } } },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { number: "desc" }],
       take: 50,
     });
     const now = this.clock.now();

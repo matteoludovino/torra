@@ -3,6 +3,7 @@ import { AdminModule } from "./admin/admin.module.ts";
 import { AccountsModule } from "./auth/accounts.module.ts";
 import { CatalogModule } from "./catalog/catalog.module.ts";
 import { CheckoutModule } from "./checkout/checkout.module.ts";
+import { DemoModule } from "./demo/demo.module.ts";
 import { ENV, type Env } from "./env.ts";
 import { HealthController } from "./health/health.controller.ts";
 import { OrdersModule } from "./orders/orders.module.ts";
@@ -25,6 +26,7 @@ export class AppModule {
         CheckoutModule,
         OrdersModule,
         AdminModule,
+        DemoModule,
       ],
       controllers: [HealthController],
       providers: [{ provide: ENV, useValue: env }],

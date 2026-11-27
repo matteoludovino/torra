@@ -10,6 +10,7 @@ import type { PaymentStart } from "@torra/shared";
 import { randomBytes } from "node:crypto";
 import type { AuthUser } from "../auth/auth-user.ts";
 import { uuidv7 } from "../common/ids.ts";
+import { RateLimiter } from "../common/rate-limiter.ts";
 import { transaction } from "../common/transactions.ts";
 import { ENV, type Env } from "../env.ts";
 import type { Order } from "../generated/prisma/client.ts";
@@ -22,6 +23,9 @@ import { Refunds } from "./refunds.service.ts";
 import { IntentNotFound, PaymentGateway, UnexpectedIntentState, type Intent } from "./gateway.ts";
 
 export const PAYMENT_EVENTS = { received: "payment.event", paid: "order.paid" } as const;
+
+/** PaymentIntents a one-click demo may create in its day. */
+export const DEMO_PAYMENTS = { max: 20, windowMs: 24 * 60 * 60_000 };
 
 /** How long before Stripe is asked again about a payment nobody told us about (webhooks can be lost). */
 export const RECHECK_MS = 2 * 60_000;
@@ -51,6 +55,7 @@ export class Payments implements OnModuleInit {
     private readonly outbox: OutboxService,
     private readonly scheduler: Scheduler,
     private readonly refunds: Refunds,
+    private readonly limiter: RateLimiter,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -97,6 +102,11 @@ export class Payments implements OnModuleInit {
     if (order.totalCents === 0) {
       await this.markPaid(order, null);
       return { kind: "free" };
+    }
+    if (!order.paymentIntentId) {
+      // A demo makes a bounded number of PaymentIntents: they all land on one Stripe test account.
+      const sandbox = await this.db.sandbox.findUnique({ where: { id: order.sandboxId } });
+      if (sandbox?.expiresAt) this.limiter.hit(`payments:demo:${sandbox.id}`, DEMO_PAYMENTS);
     }
     const intent = await this.ensureIntent(order);
     if (intent.status === "succeeded" || intent.status === "processing") {
