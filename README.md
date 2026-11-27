@@ -78,6 +78,16 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
   every customer's orders, labelled by origin, and the shared catalog and stock. A demo's admin runs only
   that demo: its orders, products and coupons of its own, and its own copy of the stock; the shared
   catalog is read-only to it. Scope is one rule in the API, checked by tests from both sides.
+- **Refunds that can't go wrong twice.** From the panel: units of any line (each unit's exact share of
+  the discount, so refunding everything in any steps gives back the total to the cent), optionally back to
+  stock, the shipping once, or an amount on its own; cancelling a paid order not yet shipped refunds all of
+  it and restocks the goods. The refund is recorded before Stripe is asked (its id is the idempotency key
+  and goes in Stripe's metadata); Stripe's answer, its events or a sweep settle it, and a retry after a lost
+  answer first looks the refund up by that id, so it's never made twice, not even after the key expires.
+  Refunds that fail at the bank later stop counting, and refunds made in Stripe's Dashboard show up here.
+  A digital item refunded in full can no longer be downloaded, not even by a link already handed out.
+- **Disputes are visible.** A chargeback marks the order (status as Stripe reports it), enters its
+  history, shows on the overview, and blocks refunds while the bank holds the money.
 - **Email people can control.** Receipts and account email always go; order progress updates carry a
   signed unsubscribe link and the one-click header email clients turn into a button.
 
@@ -105,6 +115,10 @@ An npm-workspaces monorepo, built on the infrastructure of [Lance](https://githu
   in production Stripe is required, and live keys are refused everywhere.
 - **Fulfillment rules in the database too:** only orders with something to ship are prepared, shipped
   (with a tracking code) or delivered, in that order; a stock correction carries its reason.
+- **Refund rules in the database:** what's refunded (pending or done) never exceeds what was paid, kept
+  by a trigger one change at a time so concurrent refunds can't overdraw; a refund's lines add up to it,
+  give back no more units or money than were bought, and shipping comes back at most once; a refund's
+  amount never changes and its status only moves forward.
 - **Money rules in the database too:** a paid order that cost something has a PaymentIntent with no
   mismatch; its PaymentIntent can't change once it leaves "waiting for payment"; downloads exist only for a
   paid order's digital items.
@@ -148,5 +162,5 @@ the page and a sweep ask Stripe). `npm test` also checks the Stripe adapter agai
 5. ✅ Orders with stock reservation
 6. ✅ Stripe payments (Payment Element, webhooks, reconciliation, digital downloads)
 7. ✅ Admin panel (orders and fulfillment, products and stock, coupons)
-8. Refunds and disputes
+8. ✅ Refunds and disputes
 9. One-click demo, deploy, README with GIF, ADRs
