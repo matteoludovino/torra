@@ -31,7 +31,7 @@ export async function resetDb(db: PrismaService): Promise<void> {
     db.$executeRawUnsafe(`SELECT set_config('torra.purge', 'on', true)`),
     db.$executeRawUnsafe(
       `TRUNCATE users, sandboxes, sessions, email_tokens, sent_emails, outbox_events, audit_entries,
-        products, variants, stock_levels, stock_movements, carts, cart_items, coupons, coupon_redemptions, orders, order_items, order_events, payment_events, downloads RESTART IDENTITY CASCADE`,
+        products, variants, stock_levels, stock_movements, carts, cart_items, coupons, coupon_redemptions, orders, order_items, order_events, payment_events, downloads, refunds, refund_items RESTART IDENTITY CASCADE`,
     ),
   ]);
 }

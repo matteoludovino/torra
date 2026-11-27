@@ -428,6 +428,7 @@ model Order {
   latestChargeId      String?           @db.VarChar(80)
   amountPaidCents     Int               @default(0)
   amountRefundedCents Int               @default(0)
+  /// The latest dispute's status, as Stripe names it (needs_response, under_review, won, lost…).
   disputeStatus       String?           @db.VarChar(40)
   paidAt              DateTime?         @db.Timestamptz(3)
   trackingCode        String?           @db.VarChar(40)
@@ -440,6 +441,7 @@ model Order {
   events              OrderEvent[]
   redemption          CouponRedemption?
   stockMovements      StockMovement[]
+  refunds             Refund[]
 
   /// Partial in the migration: WHERE status = 'pending_payment'.
   @@unique([cartId])
@@ -470,6 +472,7 @@ model OrderItem {
   position       Int
 
   downloads      Download[]
+  refundItems    RefundItem[]
 
   @@unique([orderId, variantId])
   @@map("order_items")
@@ -511,4 +514,64 @@ model Download {
 
   @@index([orderItemId])
   @@map("downloads")
+}
+
+enum RefundStatus {
+  pending
+  requires_action
+  succeeded
+  failed
+  canceled
+}
+
+enum RefundOrigin {
+  /// Asked for in the admin panel, for items, shipping or an amount.
+  panel
+  /// A paid order cancelled before shipping: everything back.
+  cancellation
+  /// Made in Stripe's Dashboard: learnt from Stripe.
+  stripe
+}
+
+/// Money given back on an order. Written before Stripe is asked (its id is the idempotency key and goes
+/// in the refund's metadata); Stripe's answer, an event or a sweep settle its status. Pending and
+/// succeeded refunds count against what was paid (the order's amountRefundedCents, kept by a trigger).
+model Refund {
+  id             String       @id @db.Uuid
+  orderId        String       @db.Uuid
+  order          Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  stripeRefundId String?      @unique @db.VarChar(80)
+  amountCents    Int
+  /// The part of the amount that gives back shipping.
+  shippingCents  Int          @default(0)
+  status         RefundStatus
+  origin         RefundOrigin
+  /// Why (the admin's note), and why Stripe couldn't (if it failed).
+  reason         String?      @db.VarChar(200)
+  failureReason  String?      @db.VarChar(200)
+  actorId        String?      @db.Uuid
+  createdAt      DateTime     @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+  items          RefundItem[]
+
+  @@index([orderId])
+  @@index([status, updatedAt])
+  @@map("refunds")
+}
+
+/// What a refund gives back of one line: units, their share of the money, and how many went back to stock.
+model RefundItem {
+  id          String    @id @db.Uuid
+  refundId    String    @db.Uuid
+  refund      Refund    @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  orderItemId String    @db.Uuid
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  quantity    Int
+  amountCents Int
+  /// Physical units put back in stock (once Stripe accepted the refund).
+  restock     Int       @default(0)
+  restocked   Boolean   @default(false)
+
+  @@unique([refundId, orderItemId])
+  @@map("refund_items")
 }
