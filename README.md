@@ -132,7 +132,8 @@ An npm-workspaces monorepo, built on the infrastructure of [Lance](https://githu
 The plan ahead, by design: fulfillment kept apart from money, and refund caps enforced by the database,
 like order totals and stock already are.
 
-The reasoning behind the main choices is in [docs/adr](docs/adr).
+The reasoning behind the main choices is in [docs/adr](docs/adr); deploying it (Neon, Render, Vercel,
+Stripe's two sandboxes and webhook) is in [docs/deploy.md](docs/deploy.md).
 
 ## Running locally
 
