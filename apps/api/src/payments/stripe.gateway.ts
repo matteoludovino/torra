@@ -5,6 +5,8 @@ import {
   UnexpectedIntentState,
   type CreateIntent,
   type CreateRefund,
+  type Dispute,
+  GatewayRefused,
   type Intent,
   type IntentStatus,
   type Refund,
@@ -83,19 +85,40 @@ export class StripeGateway extends PaymentGateway {
 
   async createRefund(input: CreateRefund): Promise<Refund> {
     await this.slot();
-    const refund = await this.stripe.refunds.create(
-      {
-        payment_intent: input.paymentIntentId,
-        ...(input.amountCents === undefined ? {} : { amount: input.amountCents }),
-        metadata: input.metadata,
-      },
-      { idempotencyKey: input.idempotencyKey },
-    );
-    return {
-      id: refund.id,
-      status: (refund.status ?? "pending") as Refund["status"],
-      amountCents: refund.amount,
-    };
+    try {
+      const refund = await this.stripe.refunds.create(
+        {
+          payment_intent: input.paymentIntentId,
+          ...(input.amountCents === undefined ? {} : { amount: input.amountCents }),
+          metadata: input.metadata,
+        },
+        { idempotencyKey: input.idempotencyKey },
+      );
+      return toRefund(refund);
+    } catch (error) {
+      // A request Stripe understood and refused (more than what's left, a charge disputed…): final.
+      if (error instanceof Stripe.errors.StripeInvalidRequestError) {
+        throw new GatewayRefused(error.message, error.code ?? null);
+      }
+      throw error;
+    }
+  }
+
+  async listRefunds(paymentIntentId: string): Promise<Refund[]> {
+    await this.slot();
+    const page = await this.stripe.refunds.list({ payment_intent: paymentIntentId, limit: 100 });
+    return page.data.map(toRefund);
+  }
+
+  async listDisputes(paymentIntentId: string): Promise<Dispute[]> {
+    await this.slot();
+    const page = await this.stripe.disputes.list({ payment_intent: paymentIntentId, limit: 100 });
+    return page.data.map((dispute) => ({
+      id: dispute.id,
+      status: dispute.status,
+      amountCents: dispute.amount,
+      reason: dispute.reason,
+    }));
   }
 
   /** Spaces requests out (in this process) to stay under the test mode's rate limit. */
@@ -120,6 +143,19 @@ const KNOWN = new Set<string>([
   "canceled",
   "succeeded",
 ]);
+
+const REFUND_STATUSES = new Set<string>(["pending", "requires_action", "succeeded", "failed", "canceled"]);
+
+function toRefund(refund: Stripe.Refund): Refund {
+  return {
+    id: refund.id,
+    // An unknown status reads as pending: still counted against the payment, until Stripe settles it.
+    status: REFUND_STATUSES.has(refund.status ?? "") ? (refund.status as Refund["status"]) : "pending",
+    amountCents: refund.amount,
+    metadata: refund.metadata ?? {},
+    failureReason: refund.failure_reason ?? null,
+  };
+}
 
 function toIntent(intent: Stripe.PaymentIntent): Intent {
   const charge = intent.latest_charge;

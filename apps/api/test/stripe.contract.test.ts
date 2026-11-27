@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
 import { describe, expect, it } from "vitest";
-import { UnexpectedIntentState } from "../src/payments/gateway.ts";
+import { GatewayRefused, UnexpectedIntentState } from "../src/payments/gateway.ts";
 import { STRIPE_API_VERSION, StripeGateway } from "../src/payments/stripe.gateway.ts";
 
 /**
@@ -14,7 +14,7 @@ const key = process.env["STRIPE_SECRET_KEY"] || undefined;
 if (!key) console.warn("Stripe contract tests skipped: STRIPE_SECRET_KEY (test mode) is not set.");
 if (key && !/^(sk|rk)_test_/.test(key)) throw new Error("STRIPE_SECRET_KEY must be a test-mode key");
 
-describe.skipIf(!key)("the Stripe adapter, against Stripe", { timeout: 60_000 }, () => {
+describe.skipIf(!key)("the Stripe adapter, against Stripe", { timeout: 90_000 }, () => {
   // The block is still read when skipped: a placeholder key that nothing uses.
   const secret = key ?? "sk_test_skipped";
   const gateway = new StripeGateway(secret);
@@ -71,6 +71,59 @@ describe.skipIf(!key)("the Stripe adapter, against Stripe", { timeout: 60_000 },
     // Then paid with another card: the same PaymentIntent.
     await stripe.paymentIntents.confirm(intent.id, { payment_method: "pm_card_visa" });
     expect((await gateway.retrieveIntent(intent.id)).status).toBe("succeeded");
+  });
+
+  /** Stripe settles some things a few seconds later: asks until `done`, for up to half a minute. */
+  async function eventually<T>(ask: () => Promise<T>, done: (value: T) => boolean): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      const value = await ask();
+      if (done(value) || attempt >= 15) return value;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+
+  it("lists refunds with our metadata, and shows one that fails later", async () => {
+    const intent = await create();
+    // A card whose refunds fail after being accepted (4000 0000 0000 5126).
+    await stripe.paymentIntents.confirm(intent.id, { payment_method: "pm_card_refundFail" });
+    const refund = await gateway.createRefund({
+      paymentIntentId: intent.id,
+      amountCents: 1000,
+      metadata: { ...metadata, refundId: "contract-refund" },
+      idempotencyKey: `contract:${randomUUID()}`,
+    });
+    const listed = await eventually(
+      () => gateway.listRefunds(intent.id),
+      (refunds) => refunds[0]?.status === "failed",
+    );
+    expect(listed[0]).toMatchObject({
+      id: refund.id,
+      status: "failed",
+      metadata: { refundId: "contract-refund" },
+    });
+    expect(listed[0]!.failureReason).toBeTruthy();
+  });
+
+  it("shows a dispute the bank opens", async () => {
+    const intent = await create();
+    // A card that is disputed as soon as it's charged (4000 0000 0000 0259).
+    await stripe.paymentIntents.confirm(intent.id, { payment_method: "pm_card_createDispute" });
+    const disputes = await eventually(
+      () => gateway.listDisputes(intent.id),
+      (found) => found.length > 0,
+    );
+    expect(disputes[0]).toMatchObject({
+      amountCents: 4990,
+      status: expect.stringMatching(/needs_response|warning/),
+    });
+    // A disputed charge can't be refunded: Stripe refuses, for good.
+    await expect(
+      gateway.createRefund({
+        paymentIntentId: intent.id,
+        metadata,
+        idempotencyKey: `contract:${randomUUID()}`,
+      }),
+    ).rejects.toBeInstanceOf(GatewayRefused);
   });
 
   it("cancels one not paid, and cancelling again is fine", async () => {

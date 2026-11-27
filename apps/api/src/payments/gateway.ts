@@ -41,6 +41,19 @@ export interface Refund {
   id: string;
   status: "pending" | "requires_action" | "succeeded" | "failed" | "canceled";
   amountCents: number;
+  /** Ours: refundId (the local row), orderId, env. Empty for one made in Stripe's Dashboard. */
+  metadata: Record<string, string>;
+  /** Why it failed, as Stripe says (e.g. "expired_or_canceled_card"). */
+  failureReason: string | null;
+}
+
+/** A chargeback: the customer's bank took the money back, pending evidence. */
+export interface Dispute {
+  id: string;
+  /** warning_needs_response, needs_response, under_review, won, lost… */
+  status: string;
+  amountCents: number;
+  reason: string;
 }
 
 export interface CreateRefund {
@@ -72,4 +85,17 @@ export abstract class PaymentGateway {
   /** Throws UnexpectedIntentState when the PaymentIntent is past cancelling. */
   abstract cancelIntent(id: string): Promise<Intent>;
   abstract createRefund(input: CreateRefund): Promise<Refund>;
+  /** Every refund of a PaymentIntent (ours and the Dashboard's), newest first. */
+  abstract listRefunds(paymentIntentId: string): Promise<Refund[]>;
+  abstract listDisputes(paymentIntentId: string): Promise<Dispute[]>;
+}
+
+/** Stripe refused a request for good (not a network failure): retrying the same won't help. */
+export class GatewayRefused extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+  ) {
+    super(message);
+  }
 }
