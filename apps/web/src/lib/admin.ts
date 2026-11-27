@@ -12,6 +12,7 @@ import type {
   OrderStatus,
   ProductInput,
   ProductUpdate,
+  RefundInput,
   StockAdjustment,
   VariantInput,
   VariantUpdate,
@@ -69,7 +70,8 @@ export type OrderAction =
   | { kind: "ship"; trackingCode: string }
   | { kind: "deliver" }
   | { kind: "cancel" }
-  | { kind: "reconcile" };
+  | { kind: "reconcile" }
+  | { kind: "refunds"; input: RefundInput };
 
 /** A step on an order: the answer is the order as it now stands. */
 export function useOrderAction(id: string) {
@@ -78,7 +80,12 @@ export function useOrderAction(id: string) {
     mutationFn: (action: OrderAction) =>
       api<AdminOrderView>(`/admin/orders/${id}/${action.kind}`, {
         method: "POST",
-        body: action.kind === "ship" ? { trackingCode: action.trackingCode } : undefined,
+        body:
+          action.kind === "ship"
+            ? { trackingCode: action.trackingCode }
+            : action.kind === "refunds"
+              ? action.input
+              : undefined,
       }),
     onSuccess: (order) => {
       client.setQueryData([...ADMIN, "order", id], order);

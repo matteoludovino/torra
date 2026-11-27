@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { Card, Loading } from "@/components/admin/admin-shell";
+import { DisputeNotice, RefundPanel } from "@/components/admin/refund-panel";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { Timeline } from "@/components/orders/timeline";
 import { Button, ButtonLink } from "@/components/ui/button";
@@ -57,6 +58,7 @@ export function AdminOrderScreen({ id }: { id: string }) {
           {order.customer.name} · {order.customer.email} · feito em {dateTime(order.createdAt)}
         </p>
       </header>
+      <DisputeNotice order={order} />
       <NextStep order={order} />
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
         <div className="grid gap-6">
@@ -68,6 +70,9 @@ export function AdminOrderScreen({ id }: { id: string }) {
                     {line.quantity} × {line.title}
                     {line.options ? <span className="text-stone-500"> · {line.options}</span> : null}
                     {line.kind === "digital" ? <span className="text-sky-800"> · digital</span> : null}
+                    {line.refundedQuantity > 0 ? (
+                      <span className="text-amber-800"> · {line.refundedQuantity} reembolsado</span>
+                    ) : null}
                   </span>
                   <span className="shrink-0 tabular-nums">{formatBRL(line.lineTotalCents)}</span>
                 </li>
@@ -85,9 +90,13 @@ export function AdminOrderScreen({ id }: { id: string }) {
                 />
               ) : null}
               <Row label="Total" value={formatBRL(order.totalCents)} strong />
+              {order.refundedCents > 0 ? (
+                <Row label="Reembolsado" value={`− ${formatBRL(order.refundedCents)}`} />
+              ) : null}
             </dl>
           </Card>
           <Payment order={order} />
+          <RefundPanel order={order} />
         </div>
         <aside className="grid gap-6">
           {order.address ? (
@@ -131,6 +140,13 @@ function NextStep({ order }: { order: AdminOrderView }) {
     if (data) action.mutate({ kind: "ship", trackingCode: data.trackingCode });
   }
 
+  const paid = order.status === "paid" || order.status === "preparing";
+  // A paid order not yet shipped: cancelled by refunding everything (goods back to stock).
+  const cancelPaid = (
+    <Button type="button" variant="ghost" onClick={() => setAsking(true)}>
+      Cancelar e reembolsar
+    </Button>
+  );
   let body: React.ReactNode = null;
   if (order.status === "pending_payment") {
     body = (
@@ -142,7 +158,12 @@ function NextStep({ order }: { order: AdminOrderView }) {
       </div>
     );
   } else if (!order.ships && order.paidAt && order.status === "paid") {
-    body = <p className="text-sm">Pago, só com produtos digitais: os downloads já estão com o cliente.</p>;
+    body = (
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-sm">Pago, só com produtos digitais: os downloads já estão com o cliente.</p>
+        {cancelPaid}
+      </div>
+    );
   } else if (order.status === "paid") {
     body = (
       <div className="flex flex-wrap items-center gap-3">
@@ -150,6 +171,7 @@ function NextStep({ order }: { order: AdminOrderView }) {
         <Button busy={action.isPending} onClick={() => action.mutate({ kind: "prepare" })}>
           Começar a preparar
         </Button>
+        {cancelPaid}
       </div>
     );
   } else if (order.status === "preparing") {
@@ -167,6 +189,7 @@ function NextStep({ order }: { order: AdminOrderView }) {
         <Button type="submit" busy={action.isPending}>
           Marcar como enviado
         </Button>
+        {cancelPaid}
       </form>
     );
   } else if (order.status === "shipped") {
@@ -186,8 +209,9 @@ function NextStep({ order }: { order: AdminOrderView }) {
       {failure ? <Notice tone="error">{failure}</Notice> : null}
       <Dialog open={asking} onClose={() => setAsking(false)} title={`Cancelar o pedido #${order.number}?`}>
         <p className="text-sm text-stone-700">
-          O pagamento em aberto é cancelado no Stripe, o estoque e o cupom voltam, e o cliente vê o pedido
-          como cancelado pela loja.
+          {paid
+            ? `Todo o valor que resta (${formatBRL(order.payment.amountPaidCents - order.refundedCents)}) é reembolsado no cartão, os produtos voltam ao estoque e o cliente recebe um e-mail.`
+            : "O pagamento em aberto é cancelado no Stripe, o estoque e o cupom voltam, e o cliente vê o pedido como cancelado pela loja."}
         </p>
         <div className="flex flex-wrap justify-end gap-2">
           <Button variant="secondary" onClick={() => setAsking(false)}>

@@ -22,7 +22,7 @@ export function DashboardScreen() {
   if (!data) return <Loading />;
   return (
     <>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Figure label="Vendas em 7 dias" sales={data.sales7} />
         <Figure label="Vendas em 30 dias" sales={data.sales30} />
         <Tile label="A enviar" value={String(data.toShip)} href="/admin/pedidos?status=paid" />
@@ -30,6 +30,16 @@ export function DashboardScreen() {
           label="Pagamentos em análise"
           value={String(data.inReview)}
           tone={data.inReview > 0 ? "warn" : undefined}
+        />
+        <Tile
+          label="Disputas abertas"
+          value={String(data.disputesOpen)}
+          tone={data.disputesOpen > 0 ? "warn" : undefined}
+        />
+        <Tile
+          label="Reembolsos que falharam"
+          value={String(data.refundsFailed)}
+          tone={data.refundsFailed > 0 ? "warn" : undefined}
         />
       </div>
 

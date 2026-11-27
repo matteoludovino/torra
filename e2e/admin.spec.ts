@@ -134,3 +134,42 @@ test("isn't for customers", async ({ page }) => {
   await expect(page.getByText("Esta área é só para a equipe da loja.")).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Seções do painel" })).toHaveCount(0);
 });
+
+test("refund part of an order, then cancel the rest; the customer sees what came back", async ({
+  page,
+  browser,
+}) => {
+  const email = newEmail("ana");
+  const number = await paidOrder(page, email);
+  const orderUrl = page.url();
+
+  const admin = await otherPerson(browser);
+  await signInAsAdmin(admin);
+  await admin.goto("/admin/pedidos");
+  await admin.getByRole("link", { name: new RegExp(`^${number} Ana Souza`) }).click();
+
+  // The shipping back, as a goodwill gesture.
+  await admin.getByRole("checkbox", { name: /Frete/ }).check();
+  await field(admin, "Motivo").fill("Atraso na entrega");
+  await admin.getByRole("button", { name: "Reembolsar R$ 19,90" }).click();
+  await expect(admin.getByText("Atraso na entrega")).toBeVisible();
+  await expect(admin.getByText("Reembolsado", { exact: true }).first()).toBeVisible();
+
+  // Then the order itself, before it ships: everything else back.
+  await admin.getByRole("button", { name: "Cancelar e reembolsar" }).click();
+  await admin.getByRole("dialog").getByRole("button", { name: "Cancelar pedido" }).click();
+  await expect(admin.getByText("Cancelado", { exact: true }).first()).toBeVisible();
+
+  await page.goto(orderUrl);
+  await expect(
+    page.getByText("Pedido cancelado pela loja: o valor pago foi devolvido ao cartão."),
+  ).toBeVisible();
+  await expect(page.getByRole("region", { name: "Itens" }).getByText("− R$ 68,90")).toBeVisible();
+  await expect
+    .poll(async () => {
+      const search = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}`);
+      const { messages } = (await search.json()) as { messages: { Subject: string }[] };
+      return messages.filter((message) => message.Subject.startsWith("Reembolso")).length;
+    })
+    .toBe(2);
+});

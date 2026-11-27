@@ -99,6 +99,11 @@ export function OrdersScreen({ initialStatus }: { initialStatus?: OrderStatus })
                         {ORDER_ORIGIN_LABELS.demo}
                       </span>
                     ) : null}
+                    {order.disputeStatus ? (
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-900">
+                        Disputa
+                      </span>
+                    ) : null}
                     {order.paymentReview ? (
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-900">
                         Em análise

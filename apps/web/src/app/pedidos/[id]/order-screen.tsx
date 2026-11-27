@@ -132,6 +132,9 @@ function Order({ id }: { id: string }) {
               <dt className="font-medium">Total</dt>
               <dd className="text-lg font-semibold">{formatBRL(order.totalCents)}</dd>
             </div>
+            {order.refundedCents > 0 ? (
+              <Row label="Reembolsado" value={`− ${formatBRL(order.refundedCents)}`} tone="good" />
+            ) : null}
           </dl>
         </section>
         <aside className="grid gap-4">
@@ -146,9 +149,11 @@ function Order({ id }: { id: string }) {
               <p className="text-stone-600">
                 {order.address.district} · {order.address.city}/{order.address.uf} · {order.address.cep}
               </p>
-              <p className="mt-2 text-stone-600">
-                Chega em {order.shipping.daysMin} a {order.shipping.daysMax} dias úteis depois do envio.
-              </p>
+              {order.status === "canceled" || order.status === "expired" ? null : (
+                <p className="mt-2 text-stone-600">
+                  Chega em {order.shipping.daysMin} a {order.shipping.daysMax} dias úteis depois do envio.
+                </p>
+              )}
             </section>
           ) : null}
           <Timeline events={order.events} />
@@ -226,14 +231,15 @@ function Standing({ order, onExpired }: { order: OrderView; onExpired: () => voi
     );
   }
   if (order.status === "canceled") {
-    const replaced = order.events.some(
-      (event) => event.type === "canceled" && event.data.reason === "replaced",
-    );
+    const reason = order.events.findLast((event) => event.type === "canceled")?.data.reason;
+    const replaced = reason === "replaced";
     return (
       <Notice tone="info">
         {replaced
           ? "Este pedido foi substituído por um mais recente, com outras escolhas de entrega ou cupom."
-          : "Pedido cancelado: nada foi cobrado."}{" "}
+          : reason === "refunded"
+            ? "Pedido cancelado pela loja: o valor pago foi devolvido ao cartão."
+            : "Pedido cancelado: nada foi cobrado."}{" "}
         <Link href="/conta" className="font-medium underline underline-offset-2">
           Ver seus pedidos
         </Link>

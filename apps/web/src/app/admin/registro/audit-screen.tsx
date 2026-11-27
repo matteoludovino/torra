@@ -1,6 +1,6 @@
 "use client";
 
-import type { AuditEntryView } from "@torra/shared";
+import { formatBRL, type AuditEntryView } from "@torra/shared";
 import { Card, Loading } from "@/components/admin/admin-shell";
 import { Notice } from "@/components/ui/notice";
 import { useAuditLog } from "@/lib/admin";
@@ -13,6 +13,8 @@ const ACTIONS: Record<string, string> = {
   "order.deliver": "Marcou como entregue o pedido",
   "order.cancel": "Cancelou o pedido",
   "order.reconcile": "Consultou o Stripe sobre o pedido",
+  "order.refund": "Reembolsou",
+  "order.cancel_paid": "Cancelou e reembolsou o pedido",
   "product.create": "Criou o produto",
   "product.update": "Alterou o produto",
   "variant.create": "Criou a variante",
@@ -65,6 +67,7 @@ function describe({ details }: AuditEntryView): string {
   }
   if (typeof details.quantity === "number")
     parts.push(`${details.quantity > 0 ? "+" : ""}${details.quantity}`);
+  if (typeof details.amountCents === "number") parts.push(formatBRL(details.amountCents));
   if (typeof details.reason === "string") parts.push(`(${details.reason})`);
   return parts.join(" ");
 }
