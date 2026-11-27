@@ -126,6 +126,14 @@ describe.skipIf(!key)("the Stripe adapter, against Stripe", { timeout: 90_000 },
     ).rejects.toBeInstanceOf(GatewayRefused);
   });
 
+  it("pays one with the test card from the server (the demo's story)", async () => {
+    const intent = await create();
+    expect(await gateway.payWithTestCard(intent.id)).toMatchObject({
+      status: "succeeded",
+      amountReceivedCents: 4990,
+    });
+  });
+
   it("cancels one not paid, and cancelling again is fine", async () => {
     const intent = await create();
     expect((await gateway.cancelIntent(intent.id)).status).toBe("canceled");

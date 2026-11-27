@@ -85,6 +85,11 @@ export abstract class PaymentGateway {
   /** Throws UnexpectedIntentState when the PaymentIntent is past cancelling. */
   abstract cancelIntent(id: string): Promise<Intent>;
   abstract createRefund(input: CreateRefund): Promise<Refund>;
+  /**
+   * Pays a PaymentIntent with Stripe's test Visa (pm_card_visa), from the server: the one-click demo's
+   * starting story is made of real test payments. Test mode only, as everything here.
+   */
+  abstract payWithTestCard(id: string): Promise<Intent>;
   /** Every refund of a PaymentIntent (ours and the Dashboard's), newest first. */
   abstract listRefunds(paymentIntentId: string): Promise<Refund[]>;
   abstract listDisputes(paymentIntentId: string): Promise<Dispute[]>;

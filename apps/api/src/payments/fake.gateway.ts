@@ -112,6 +112,10 @@ export class FakeGateway extends PaymentGateway {
     return copy(refund);
   }
 
+  async payWithTestCard(id: string): Promise<Intent> {
+    return this.settle(id, "succeed");
+  }
+
   async listRefunds(paymentIntentId: string): Promise<Refund[]> {
     this.calls.list += 1;
     return this.refunds.filter((refund) => refund.paymentIntentId === paymentIntentId).map(copy);

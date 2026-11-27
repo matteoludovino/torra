@@ -104,6 +104,12 @@ export class StripeGateway extends PaymentGateway {
     }
   }
 
+  async payWithTestCard(id: string): Promise<Intent> {
+    await this.slot();
+    // A card payment needs no redirect: no return_url, and Stripe answers succeeded at once.
+    return toIntent(await this.stripe.paymentIntents.confirm(id, { payment_method: "pm_card_visa" }));
+  }
+
   async listRefunds(paymentIntentId: string): Promise<Refund[]> {
     await this.slot();
     const page = await this.stripe.refunds.list({ payment_intent: paymentIntentId, limit: 100 });
