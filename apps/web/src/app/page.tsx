@@ -2,6 +2,7 @@ import { CATEGORIES, type ProductSummary } from "@torra/shared";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ProductGrid } from "@/components/catalog/product-grid";
+import { DemoStart } from "@/components/demo-start";
 import { ServerStatus } from "@/components/server-status";
 import { ButtonLink } from "@/components/ui/button";
 import { Unavailable } from "@/components/unavailable";
@@ -26,6 +27,7 @@ export default function Home() {
         </div>
         <ServerStatus />
       </div>
+      <DemoStart />
       <Suspense fallback={<div aria-busy className="h-96 animate-pulse rounded-2xl bg-stone-200/70" />}>
         <Shelves />
       </Suspense>
