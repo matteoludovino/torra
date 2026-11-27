@@ -1,17 +1,12 @@
 "use client";
 
-import {
-  SHIPPING_LABELS,
-  formatBRL,
-  type OrderEventView,
-  type OrderView,
-  type ShippingService,
-} from "@torra/shared";
+import { SHIPPING_LABELS, formatBRL, type OrderView, type ShippingService } from "@torra/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { PaymentPanel } from "@/components/orders/payment-panel";
 import { StatusBadge } from "@/components/orders/status-badge";
+import { Timeline } from "@/components/orders/timeline";
 import { RequireSession } from "@/components/require-session";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -298,46 +293,6 @@ function Countdown({ until, onEnd }: { until: string; onEnd: () => void }) {
     <strong className="font-semibold tabular-nums" aria-label={`${minutes} minutos e ${seconds} segundos`}>
       {minutes}:{seconds}
     </strong>
-  );
-}
-
-const EVENTS: Record<string, string> = {
-  placed: "Pedido recebido",
-  paid: "Pagamento confirmado",
-  payment_processing: "Pagamento em processamento",
-  payment_problem: "Pagamento em análise",
-  late_payment_refunded: "Pagamento estornado (o pedido já estava encerrado)",
-  canceled: "Cancelado",
-  expired: "Expirou sem pagamento",
-};
-const REASONS: Record<string, string> = {
-  customer: "por você",
-  replaced: "substituído por um pedido novo",
-};
-
-function Timeline({ events }: { events: OrderEventView[] }) {
-  return (
-    <section className="grid gap-2 rounded-2xl border border-stone-200 bg-white p-5 text-sm shadow-sm">
-      <h2 className="mb-1 font-semibold">Histórico</h2>
-      <ol className="grid gap-2 border-l border-stone-200 pl-4">
-        {events.map((event, n) => {
-          const reason = typeof event.data.reason === "string" ? REASONS[event.data.reason] : undefined;
-          return (
-            <li key={n} className="relative">
-              <span
-                aria-hidden
-                className="absolute top-1.5 -left-[1.3rem] size-2 rounded-full bg-brand-600"
-              />
-              <p className="text-stone-900">
-                {EVENTS[event.type] ?? event.type}
-                {reason ? <span className="text-stone-600"> · {reason}</span> : null}
-              </p>
-              <p className="text-xs text-stone-500">{dateTime(event.at)}</p>
-            </li>
-          );
-        })}
-      </ol>
-    </section>
   );
 }
 
