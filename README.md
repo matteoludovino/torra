@@ -88,6 +88,12 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
   A digital item refunded in full can no longer be downloaded, not even by a link already handed out.
 - **Disputes are visible.** A chargeback marks the order (status as Stripe reports it), enters its
   history, shows on the overview, and blocks refunds while the bank holds the money.
+- **A one-click demo.** "Entrar como cliente" or "como admin" opens a corner of the store of one's own
+  (a sandbox, gone after a day), signed in at once; its starting story is written in the background, through
+  the same services customers and admins use, with real test payments when Stripe is configured: an order
+  delivered (to refund), one paid and waiting to ship, one waiting for payment (to pay with a test card).
+  One click switches persona inside the same demo; the demo's emails are kept in an inbox of its own.
+  Limits: five demos an hour per address, a global cap, and twenty PaymentIntents per demo.
 - **Email people can control.** Receipts and account email always go; order progress updates carry a
   signed unsubscribe link and the one-click header email clients turn into a button.
 
@@ -126,6 +132,8 @@ An npm-workspaces monorepo, built on the infrastructure of [Lance](https://githu
 The plan ahead, by design: fulfillment kept apart from money, and refund caps enforced by the database,
 like order totals and stock already are.
 
+The reasoning behind the main choices is in [docs/adr](docs/adr).
+
 ## Running locally
 
 Requirements: Node.js 22.18+, Docker.
@@ -163,4 +171,4 @@ the page and a sweep ask Stripe). `npm test` also checks the Stripe adapter agai
 6. ✅ Stripe payments (Payment Element, webhooks, reconciliation, digital downloads)
 7. ✅ Admin panel (orders and fulfillment, products and stock, coupons)
 8. ✅ Refunds and disputes
-9. One-click demo, deploy, README with GIF, ADRs
+9. One-click demo ✅, ADRs ✅; deploy and the README's GIF next
