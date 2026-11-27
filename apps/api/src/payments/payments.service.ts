@@ -18,6 +18,7 @@ import { PrismaService } from "../prisma/prisma.service.ts";
 import { Scheduler } from "../scheduler/scheduler.service.ts";
 import { Clock } from "../time/clock.ts";
 import { FakeGateway, type FakeOutcome } from "./fake.gateway.ts";
+import { Refunds } from "./refunds.service.ts";
 import { IntentNotFound, PaymentGateway, UnexpectedIntentState, type Intent } from "./gateway.ts";
 
 export const PAYMENT_EVENTS = { received: "payment.event", paid: "order.paid" } as const;
@@ -49,17 +50,27 @@ export class Payments implements OnModuleInit {
     private readonly gateway: PaymentGateway,
     private readonly outbox: OutboxService,
     private readonly scheduler: Scheduler,
+    private readonly refunds: Refunds,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
   onModuleInit(): void {
     this.outbox.handle(PAYMENT_EVENTS.received, async ({ payload }) => {
-      const { type, objectId } = payload as { type: string; objectId: string };
-      if (!type.startsWith("payment_intent.")) return; // refunds and disputes: stage 8
-      const order = await this.db.order.findUnique({ where: { paymentIntentId: objectId } });
+      const { type, objectId, paymentIntentId } = payload as {
+        type: string;
+        objectId: string;
+        paymentIntentId?: string | null;
+      };
+      // Which PaymentIntent it's about: the object itself, or the one a refund, charge or dispute names.
+      const intentId = type.startsWith("payment_intent.") ? objectId : paymentIntentId;
+      if (!intentId) return;
+      const order = await this.db.order.findUnique({ where: { paymentIntentId: intentId } });
       // Unknown: another deployment's payment in a shared Stripe sandbox, or one being created right now
       // (the page and the sweep will catch up with it).
-      if (order) await this.reconcile(order.id);
+      if (!order) return;
+      if (type.startsWith("payment_intent.")) await this.reconcile(order.id);
+      else if (/^(refund\.|charge\.refund|charge\.dispute\.)/.test(type))
+        await this.refunds.reconcile(order.id);
     });
     this.scheduler.register({
       name: "payment-check",
@@ -176,7 +187,12 @@ export class Payments implements OnModuleInit {
   }
 
   /** A verified webhook event: kept once (Stripe may resend it), handled through the outbox (retried). */
-  async receive(event: { id: string; type: string; objectId: string }): Promise<void> {
+  async receive(event: {
+    id: string;
+    type: string;
+    objectId: string;
+    paymentIntentId?: string | null;
+  }): Promise<void> {
     const now = this.clock.now();
     const fresh = await transaction(this.db, async (tx) => {
       const { count } = await tx.paymentEvent.createMany({
@@ -188,6 +204,7 @@ export class Payments implements OnModuleInit {
           eventId: event.id,
           type: event.type,
           objectId: event.objectId,
+          paymentIntentId: event.paymentIntentId ?? null,
         });
       }
       return count > 0;

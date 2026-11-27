@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { couponCode } from "./checkout";
+import type { RefundView } from "./refunds";
 import { cep, SHIPPING_SERVICES, UFS } from "./shipping";
 
 const text = (min: number, max: number) => z.string().trim().min(min).max(max);
@@ -46,6 +47,8 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 
 /** What a line of an order says, as it was bought. */
 export interface OrderItemView {
+  /** The line itself (refunds name it). */
+  id: string;
   variantId: string;
   kind: "physical" | "digital";
   title: string;
@@ -54,6 +57,8 @@ export interface OrderItemView {
   unitPriceCents: number;
   lineTotalCents: number;
   discountCents: number;
+  /** Units given back by refunds that count (pending or done). */
+  refundedQuantity: number;
 }
 
 export interface OrderEventView {
@@ -90,6 +95,9 @@ export interface OrderView extends OrderSummary {
   /** While waiting for payment: until when stock and coupon are held. */
   expiresAt: string | null;
   paidAt: string | null;
+  /** Given back so far (refunds pending or done). */
+  refundedCents: number;
+  refunds: RefundView[];
   /** The payment didn't match the order (it's being looked into; the order is not paid). */
   paymentReview: boolean;
   trackingCode: string | null;

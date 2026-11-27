@@ -6,6 +6,7 @@ import { update } from "../mail/templates.ts";
 import { OutboxService } from "../outbox/outbox.service.ts";
 import { PrismaService } from "../prisma/prisma.service.ts";
 import { PAYMENT_EVENTS } from "../payments/payments.service.ts";
+import { REFUND_EVENTS } from "../payments/refunds.service.ts";
 import { ORDER_EVENTS } from "./orders.service.ts";
 
 /** Written by the admin panel's fulfillment steps (kept here, with the emails, to avoid an import cycle). */
@@ -96,6 +97,26 @@ export class OrderEmails implements OnModuleInit {
           order.user.name,
           `Pedido #${order.number} entregue`,
           [`O pedido #${order.number} foi entregue. Bom café!`],
+          { label: "Ver o pedido", url: this.link(order.id) },
+        ),
+      );
+    });
+    this.outbox.handle(REFUND_EVENTS.succeeded, async ({ payload }) => {
+      const { refundId } = payload as { refundId: string };
+      const refund = await this.db.refund.findUnique({ where: { id: refundId } });
+      if (refund?.status !== "succeeded") return;
+      const order = await this.order({ orderId: refund.orderId });
+      if (!order) return;
+      await this.mailer.send(
+        this.recipient(order),
+        "refund_succeeded",
+        update(
+          order.user.name,
+          `Reembolso de ${formatBRL(refund.amountCents)} do pedido #${order.number}`,
+          [
+            `Devolvemos ${formatBRL(refund.amountCents)} ao cartão usado no pedido #${order.number}.`,
+            "O valor pode levar alguns dias para aparecer na fatura, conforme o seu banco.",
+          ],
           { label: "Ver o pedido", url: this.link(order.id) },
         ),
       );

@@ -57,6 +57,20 @@ export class Downloads {
       include: { order: { include: { user: true } }, variant: { include: { product: true } } },
     });
     if (!item) throw new NotFoundException(NOT_FOUND);
+    // Refunded in full: no longer the customer's.
+    const refunded = await this.db.refundItem.aggregate({
+      where: {
+        orderItemId: item.id,
+        refund: { status: { in: ["pending", "requires_action", "succeeded"] } },
+      },
+      _sum: { quantity: true },
+    });
+    if ((refunded._sum.quantity ?? 0) >= item.quantity) {
+      throw new GoneException({
+        code: "refunded",
+        message: "Este item foi reembolsado: o download não está mais disponível.",
+      });
+    }
     await this.db.download.create({
       data: { id: uuidv7(now.getTime()), orderItemId: item.id, createdAt: now },
     });

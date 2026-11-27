@@ -1,7 +1,7 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { AdminOrderPage, AdminOrderSummary, AdminOrderView, OrderOrigin } from "@torra/shared";
 import type { z } from "zod";
-import type { adminOrdersQuery } from "@torra/shared";
+import type { adminOrdersQuery, refundInput } from "@torra/shared";
 import { expectChanged, transaction } from "../common/transactions.ts";
 import { uuidv7 } from "../common/ids.ts";
 import { ENV, type Env } from "../env.ts";
@@ -12,6 +12,7 @@ import { Orders } from "../orders/orders.service.ts";
 import { orderInclude, summaryOf, viewOf } from "../orders/views.ts";
 import { OutboxService } from "../outbox/outbox.service.ts";
 import { Payments } from "../payments/payments.service.ts";
+import { Refunds } from "../payments/refunds.service.ts";
 import { PaymentGateway } from "../payments/gateway.ts";
 import { PrismaService } from "../prisma/prisma.service.ts";
 import { Clock } from "../time/clock.ts";
@@ -34,6 +35,7 @@ export class AdminOrders {
     private readonly clock: Clock,
     private readonly orders: Orders,
     private readonly payments: Payments,
+    private readonly refunds: Refunds,
     private readonly gateway: PaymentGateway,
     private readonly downloads: Downloads,
     private readonly outbox: OutboxService,
@@ -66,6 +68,7 @@ export class AdminOrders {
       customer: { id: row.user.id, name: row.user.name, email: row.email },
       origin: originOf(row.sandbox),
       paymentReview: row.paymentProblem !== null,
+      disputeStatus: row.disputeStatus,
       ships: row.cep !== null,
     }));
     return { orders, next: rows.length > PAGE ? orders.at(-1)!.id : null };
@@ -82,6 +85,7 @@ export class AdminOrders {
       ...viewOf(order, now, (itemId) => this.downloads.link(itemId)),
       customer: { id: order.user.id, name: order.user.name, email: order.email },
       origin: originOf(order.sandbox),
+      disputeStatus: order.disputeStatus,
       ships: order.cep !== null,
       shippedAt: order.shippedAt?.toISOString() ?? null,
       deliveredAt: order.deliveredAt?.toISOString() ?? null,
@@ -123,17 +127,32 @@ export class AdminOrders {
   }
 
   /** Closes an order still waiting for payment (paid orders are cancelled by refunding them). */
+  /**
+   * Cancels an order: one waiting for payment closes (its PaymentIntent let go of); one paid and not yet
+   * shipped is refunded in full, its goods back to stock, and closes once Stripe has the refund.
+   */
   async cancel(admin: Admin, id: string): Promise<AdminOrderView> {
     const order = await this.db.order.findFirst({ where: { id, ...ordersOf(admin) } });
     if (!order) throw new NotFoundException(NOT_FOUND);
-    if (order.status !== "pending_payment") {
+    if (order.status === "pending_payment") {
+      await this.orders.cancelByAdmin(admin.user, id, ordersOf(admin));
+    } else if (order.status === "paid" || order.status === "preparing") {
+      await this.refunds.cancelPaid(admin.user, id, ordersOf(admin));
+    } else {
       throw new ConflictException({
-        code: "not_pending",
+        code: "not_cancelable",
         message:
-          "Só pedidos aguardando pagamento são cancelados assim; um pedido pago se cancela com reembolso.",
+          order.status === "shipped" || order.status === "delivered"
+            ? "Pedido já enviado: reembolse os itens devolvidos em vez de cancelar."
+            : "Este pedido já está encerrado.",
       });
     }
-    await this.orders.cancelByAdmin(admin.user, id, ordersOf(admin));
+    return this.view(admin, id);
+  }
+
+  /** Gives money back: units of lines (optionally back to stock), the shipping, or an amount. */
+  async refund(admin: Admin, id: string, input: z.infer<typeof refundInput>): Promise<AdminOrderView> {
+    await this.refunds.request(admin.user, id, input, ordersOf(admin));
     return this.view(admin, id);
   }
 
@@ -142,6 +161,7 @@ export class AdminOrders {
     const order = await this.db.order.findFirst({ where: { id, ...ordersOf(admin) } });
     if (!order) throw new NotFoundException(NOT_FOUND);
     await this.payments.reconcile(order.id);
+    await this.refunds.reconcile(order.id);
     await transaction(this.db, (tx) =>
       this.audit.record(tx, admin.user, "order.reconcile", { type: "order", id }, { number: order.number }),
     );

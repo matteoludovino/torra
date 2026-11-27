@@ -12,5 +12,6 @@ export * from "./health";
 export * from "./money";
 export * from "./orders";
 export * from "./profiles";
+export * from "./refunds";
 export * from "./shipping";
 export * from "./totals";

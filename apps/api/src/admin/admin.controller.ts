@@ -6,6 +6,7 @@ import {
   couponUpdate,
   productInput,
   productUpdate,
+  refundInput,
   shipOrderInput,
   stockAdjustment,
   variantInput,
@@ -93,6 +94,16 @@ export class AdminController {
   @HttpCode(200)
   cancel(@CurrentUser() user: AuthUser, @Param("id", orderId) id: string): Promise<AdminOrderView> {
     return this.orders.cancel(asAdmin(user), id);
+  }
+
+  @Post("orders/:id/refunds")
+  @HttpCode(200)
+  refund(
+    @CurrentUser() user: AuthUser,
+    @Param("id", orderId) id: string,
+    @Body(new ZodPipe(refundInput)) body: z.infer<typeof refundInput>,
+  ): Promise<AdminOrderView> {
+    return this.orders.refund(asAdmin(user), id, body);
   }
 
   @Post("orders/:id/reconcile")

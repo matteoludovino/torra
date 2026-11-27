@@ -18,6 +18,13 @@ import { Audit } from "./audit.ts";
 import { ordersOf, type Admin } from "./scope.ts";
 
 const PAID = ["paid", "preparing", "shipped", "delivered"] as const;
+/** Dispute statuses still waiting on someone (Stripe's names). */
+export const OPEN_DISPUTES = [
+  "warning_needs_response",
+  "warning_under_review",
+  "needs_response",
+  "under_review",
+] as const;
 const DAY = 86_400_000;
 
 /** The panel's overview, its customers, and the work that got stuck. */
@@ -88,6 +95,10 @@ export class AdminInsights {
         where: { ...scope, status: { in: ["paid", "preparing"] }, cep: { not: null } },
       }),
       inReview: await this.db.order.count({ where: { ...scope, paymentProblem: { not: null } } }),
+      disputesOpen: await this.db.order.count({
+        where: { ...scope, disputeStatus: { in: [...OPEN_DISPUTES] } },
+      }),
+      refundsFailed: await this.db.refund.count({ where: { status: "failed", order: scope } }),
       lowStock,
       stuck: stuck.map((event) => ({
         id: String(event.id),

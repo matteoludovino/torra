@@ -65,6 +65,10 @@ export interface AdminDashboard {
   toShip: number;
   /** Paid orders whose payment didn't match (never counted as paid). */
   inReview: number;
+  /** Orders with a dispute still open (the bank took the money back, pending evidence). */
+  disputesOpen: number;
+  /** Refunds Stripe couldn't make, or that failed later: the money is still with the store. */
+  refundsFailed: number;
   lowStock: LowStockLine[];
   stuck: StuckEvent[];
 }
@@ -104,6 +108,7 @@ export interface AdminOrderSummary extends OrderSummary {
   customer: AdminCustomerRef;
   origin: OrderOrigin;
   paymentReview: boolean;
+  disputeStatus: string | null;
   /** Something to ship (physical items). */
   ships: boolean;
 }
@@ -129,6 +134,8 @@ export interface AdminPayment {
 
 export interface AdminOrderView extends OrderView {
   customer: AdminCustomerRef;
+  /** The latest dispute's status, if the customer's bank opened one. */
+  disputeStatus: string | null;
   origin: OrderOrigin;
   ships: boolean;
   payment: AdminPayment;

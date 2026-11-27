@@ -47,11 +47,16 @@ export class WebhookController {
     if (event.livemode) {
       throw new BadRequestException({ code: "live_mode", message: "Eventos do modo real não são aceitos." });
     }
-    const object = event.data.object as { id?: unknown };
+    const object = event.data.object as { id?: unknown; payment_intent?: unknown };
     await this.payments.receive({
       id: event.id,
       type: event.type,
       objectId: typeof object.id === "string" ? object.id : "",
+      // Refunds, charges and disputes name their PaymentIntent (a string, or an expanded object).
+      paymentIntentId:
+        typeof object.payment_intent === "string"
+          ? object.payment_intent
+          : ((object.payment_intent as { id?: string } | null | undefined)?.id ?? null),
     });
     return { received: true };
   }

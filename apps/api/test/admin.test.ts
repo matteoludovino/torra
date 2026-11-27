@@ -172,16 +172,18 @@ describe("fulfillment", () => {
     ]);
   });
 
-  it("has nothing to ship for digital-only orders; cancels only orders waiting for payment", async () => {
+  it("has nothing to ship for digital-only orders; cancels orders waiting for payment", async () => {
     const store = await admin(app);
     const ana = await customer(app);
     const digital = await order(ana.browser, [EBOOK]);
     expect((await store.browser.post(`/api/admin/orders/${digital.id}/prepare`)).json().error.code).toBe(
       "nothing_to_ship",
     );
-    expect((await store.browser.post(`/api/admin/orders/${digital.id}/cancel`)).json().error.code).toBe(
-      "not_pending",
+    // Cancelling a paid order refunds it in full (see refunds.test.ts).
+    const canceledPaid = await ok<AdminOrderView>(
+      await store.browser.post(`/api/admin/orders/${digital.id}/cancel`),
     );
+    expect(canceledPaid).toMatchObject({ status: "canceled", refundedCents: 2900 });
 
     const waiting = await order(ana.browser, [DRIPPER], { pay: false });
     await ok(await ana.browser.post(`/api/orders/${waiting.id}/payment`));
