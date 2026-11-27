@@ -29,6 +29,7 @@ import { OutboxService, type Tx } from "../outbox/outbox.service.ts";
 import { PrismaService } from "../prisma/prisma.service.ts";
 import { Scheduler } from "../scheduler/scheduler.service.ts";
 import { Clock } from "../time/clock.ts";
+import { Audit } from "../admin/audit.ts";
 import { Payments, RECHECK_MS } from "../payments/payments.service.ts";
 import { Downloads } from "./downloads.ts";
 import { orderInclude, summaryOf, viewOf } from "./views.ts";
@@ -63,6 +64,7 @@ export class Orders implements OnModuleInit {
     private readonly scheduler: Scheduler,
     private readonly payments: Payments,
     private readonly downloads: Downloads,
+    private readonly audit: Audit,
   ) {}
 
   onModuleInit(): void {
@@ -310,6 +312,29 @@ export class Orders implements OnModuleInit {
       }),
     );
     return this.view(user, id);
+  }
+
+  /**
+   * An admin closes an order waiting for payment (`scope` limits which orders they may): like the
+   * customer's cancel, its PaymentIntent goes first, then its stock and coupon; the audit log records it.
+   */
+  async cancelByAdmin(admin: AuthUser, id: string, scope: Prisma.OrderWhereInput): Promise<void> {
+    await this.closing((released) =>
+      transaction(this.db, async (tx) => {
+        const order = await tx.order.findFirst({ where: { id, ...scope } });
+        if (!order) throw new NotFoundException(NOT_FOUND);
+        if (order.expiresAt <= this.clock.now()) {
+          await this.closeIn(tx, order, "expired", null, "not_paid", released);
+        } else await this.closeIn(tx, order, "canceled", admin.id, "admin", released);
+        await this.audit.record(
+          tx,
+          admin,
+          "order.cancel",
+          { type: "order", id: order.id },
+          { number: order.number },
+        );
+      }),
+    );
   }
 
   /** Orders past their hold, each closed in its own transaction (a failure doesn't hold up the rest). */

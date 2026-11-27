@@ -1,4 +1,5 @@
 import { type DynamicModule, Module } from "@nestjs/common";
+import { AdminModule } from "./admin/admin.module.ts";
 import { AccountsModule } from "./auth/accounts.module.ts";
 import { CatalogModule } from "./catalog/catalog.module.ts";
 import { CheckoutModule } from "./checkout/checkout.module.ts";
@@ -23,6 +24,7 @@ export class AppModule {
         CatalogModule,
         CheckoutModule,
         OrdersModule,
+        AdminModule,
       ],
       controllers: [HealthController],
       providers: [{ provide: ENV, useValue: env }],

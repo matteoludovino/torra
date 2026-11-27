@@ -15,6 +15,6 @@ import { Orders } from "./orders.service.ts";
   imports: [CartsModule, CatalogModule, CheckoutModule, MailModule, PaymentsModule],
   controllers: [OrdersController, OrderPaymentsController],
   providers: [Orders, OrderEmails, Downloads],
-  exports: [Orders],
+  exports: [Orders, Downloads],
 })
 export class OrdersModule {}

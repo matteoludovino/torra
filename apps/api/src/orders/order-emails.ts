@@ -8,6 +8,9 @@ import { PrismaService } from "../prisma/prisma.service.ts";
 import { PAYMENT_EVENTS } from "../payments/payments.service.ts";
 import { ORDER_EVENTS } from "./orders.service.ts";
 
+/** Written by the admin panel's fulfillment steps (kept here, with the emails, to avoid an import cycle). */
+export const FULFILLMENT = { shipped: "order.shipped", delivered: "order.delivered" } as const;
+
 /**
  * Email about orders, sent from the outbox. "We got your order" is a receipt (always sent); the expiry
  * notice is an order update people can turn off.
@@ -62,6 +65,37 @@ export class OrderEmails implements OnModuleInit {
               ? ["Agora vamos preparar o envio, e avisamos quando sair, com o código de rastreio."]
               : []),
           ],
+          { label: "Ver o pedido", url: this.link(order.id) },
+        ),
+      );
+    });
+    this.outbox.handle(FULFILLMENT.shipped, async ({ payload }) => {
+      const order = await this.order(payload);
+      if (!order?.trackingCode) return;
+      await this.mailer.send(
+        this.recipient(order),
+        "order_progress_shipped",
+        update(
+          order.user.name,
+          `Seu pedido #${order.number} foi enviado`,
+          [
+            `O pedido #${order.number} saiu para entrega. Código de rastreio: ${order.trackingCode}.`,
+            `Prazo estimado: ${order.shippingDaysMin} a ${order.shippingDaysMax} dias úteis.`,
+          ],
+          { label: "Ver o pedido", url: this.link(order.id) },
+        ),
+      );
+    });
+    this.outbox.handle(FULFILLMENT.delivered, async ({ payload }) => {
+      const order = await this.order(payload);
+      if (!order || order.status !== "delivered") return;
+      await this.mailer.send(
+        this.recipient(order),
+        "order_progress_delivered",
+        update(
+          order.user.name,
+          `Pedido #${order.number} entregue`,
+          [`O pedido #${order.number} foi entregue. Bom café!`],
           { label: "Ver o pedido", url: this.link(order.id) },
         ),
       );
