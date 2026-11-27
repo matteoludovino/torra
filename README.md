@@ -67,6 +67,17 @@ webhooks, refunds), runs orders from cart to delivery, and gives the store an ad
 - **Paid means sold.** The units the order held stay sold, its lines leave the cart, a receipt goes out,
   and digital items can be downloaded at once: a PDF made on request and licensed to the buyer by name,
   behind a signed link that works for an hour and needs no session, with each download counted.
+- **An admin panel for running the store.** An overview (sales over 7 and 30 days, orders by status,
+  what's waiting to ship, payments under review, stock running out, and outbox work that gave up, with a
+  retry); orders to find by number, name or email, each with what Stripe has (asked again on request) and
+  its next step: prepare, ship with a tracking code, mark delivered (the customer is emailed and follows
+  it on the order page), or cancel while it waits for payment; products and variants to add and price,
+  stock to correct with a reason, coupons to create and switch off, customers with what they've spent.
+  Every action goes into the append-only audit log, which the panel lists.
+- **Admins see their own corner.** The store's admins (created from the command line) run the real store:
+  every customer's orders, labelled by origin, and the shared catalog and stock. A demo's admin runs only
+  that demo: its orders, products and coupons of its own, and its own copy of the stock; the shared
+  catalog is read-only to it. Scope is one rule in the API, checked by tests from both sides.
 - **Email people can control.** Receipts and account email always go; order progress updates carry a
   signed unsubscribe link and the one-click header email clients turn into a button.
 
@@ -92,6 +103,8 @@ An npm-workspaces monorepo, built on the infrastructure of [Lance](https://githu
   that keeps PaymentIntents and refunds the way Stripe does, idempotency keys included. Without Stripe keys
   (development, tests, end-to-end runs) the fake stands in, and the order page shows a simulated card form;
   in production Stripe is required, and live keys are refused everywhere.
+- **Fulfillment rules in the database too:** only orders with something to ship are prepared, shipped
+  (with a tracking code) or delivered, in that order; a stock correction carries its reason.
 - **Money rules in the database too:** a paid order that cost something has a PaymentIntent with no
   mismatch; its PaymentIntent can't change once it leaves "waiting for payment"; downloads exist only for a
   paid order's digital items.
@@ -134,6 +147,6 @@ the page and a sweep ask Stripe). `npm test` also checks the Stripe adapter agai
 4. ✅ Shipping by CEP, coupons and totals
 5. ✅ Orders with stock reservation
 6. ✅ Stripe payments (Payment Element, webhooks, reconciliation, digital downloads)
-7. Admin panel (orders and fulfillment, products and stock, coupons)
+7. ✅ Admin panel (orders and fulfillment, products and stock, coupons)
 8. Refunds and disputes
 9. One-click demo, deploy, README with GIF, ADRs
